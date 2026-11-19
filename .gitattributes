@@ -1,0 +1,6 @@
+# Prefer lf
+* text=auto eol=lf
+
+# Windows specific
+*.bat eol=crlf
+*.cmd eol=crlf

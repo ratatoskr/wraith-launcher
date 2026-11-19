@@ -1,0 +1,153 @@
+name: release
+
+# Run it by hand from the Actions tab with the version to release (like 0.0.2, no "v"). It sets the
+# version with scripts/set-version.mjs, builds, commits, tags `v<version>` and publishes the app
+# to dist.wraith.io on Cloudflare R2. Only the tag is pushed, so main stays at 0.0.0.
+#
+#   launcher/<version>/Wraith_<version>_x64-setup.exe(.sig)   installer and signature
+#   launcher/Wraith_x64-setup.exe                             latest installer for download
+#   launcher/latest.json                                      what the updater checks
+#
+# Secrets: TAURI_SIGNING_PRIVATE_KEY is the updater's private key. tauri.conf.json has the public
+# one. R2_ACCOUNT_ID, R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY are an R2 token that can write to
+# the bucket.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to release, like 0.0.2 or 0.1.0-alpha.1 (no "v")
+        required: true
+        type: string
+
+# Pushes the release tag
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  TARGET: x86_64-pc-windows-msvc
+  DIST_URL: https://dist.wraith.io
+  BUCKET: wraith-dist
+
+jobs:
+  release:
+    name: release | x86_64-pc-windows-msvc
+    runs-on: windows-latest
+    timeout-minutes: 45
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - name: checkout repository
+        uses: actions/checkout@v7
+
+      - name: check the version
+        shell: bash
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          if ! [[ $VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::$VERSION isn't a version like 1.2.3 or 1.2.3-alpha.1"
+            exit 1
+          fi
+          if [ "$VERSION" = 0.0.0 ]; then
+            echo "::error::0.0.0 is main's version, not a release"
+            exit 1
+          fi
+          if git ls-remote --exit-code --tags origin "refs/tags/v$VERSION" > /dev/null; then
+            echo "::error::v$VERSION is already tagged"
+            exit 1
+          fi
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      - name: install node
+        uses: actions/setup-node@v7
+        with:
+          node-version: lts/*
+          cache: npm
+
+      - name: install rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ env.TARGET }}
+
+      - name: cache rust
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: release
+
+      - name: install packages
+        run: npm ci
+
+      - name: set the version
+        run: node scripts/set-version.mjs $env:VERSION
+
+      - name: build
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
+        run: npm run tauri build -- --target ${{ env.TARGET }}
+
+      - name: package
+        shell: pwsh
+        run: |
+          $setup = "Wraith_$($env:VERSION)_x64-setup.exe"
+          $bundle = "src-tauri\target\$env:TARGET\release\bundle\nsis"
+          New-Item -ItemType Directory publish | Out-Null
+          Copy-Item "$bundle\$setup", "$bundle\$setup.sig" publish
+          @{
+            version = $env:VERSION
+            pub_date = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+            platforms = @{
+              "windows-x86_64" = @{
+                signature = (Get-Content "publish\$setup.sig" -Raw).Trim()
+                url = "$env:DIST_URL/launcher/$env:VERSION/$setup"
+              }
+            }
+          } | ConvertTo-Json -Depth 4 | Set-Content publish\latest.json -Encoding utf8NoBOM
+          Get-Content publish\latest.json
+
+      # The versioned installer goes up before the tag, so a failed upload leaves nothing tagged and
+      # the run can be retried. latest.json goes last so the updater never sees it before the
+      # installer is up.
+      - name: upload
+        shell: pwsh
+        env: &r2
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          # R2 rejects the checksums newer AWS CLIs send by default
+          AWS_REQUEST_CHECKSUM_CALCULATION: WHEN_REQUIRED
+          AWS_RESPONSE_CHECKSUM_VALIDATION: WHEN_REQUIRED
+          R2_ENDPOINT: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+        run: |
+          $setup = "Wraith_$($env:VERSION)_x64-setup.exe"
+          foreach ($file in $setup, "$setup.sig") {
+            aws s3 cp "publish\$file" "s3://$env:BUCKET/launcher/$env:VERSION/$file" --endpoint-url $env:R2_ENDPOINT
+            if ($LASTEXITCODE -ne 0) { exit 1 }
+          }
+
+      - name: commit and tag
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "release v$VERSION"
+          git tag -a "v$VERSION" -m "v$VERSION"
+          git push origin "v$VERSION"
+
+      - name: publish
+        shell: pwsh
+        env: *r2
+        run: |
+          $setup = "Wraith_$($env:VERSION)_x64-setup.exe"
+          $to = "s3://$env:BUCKET/launcher"
+          aws s3 cp "publish\$setup" "$to/Wraith_x64-setup.exe" --endpoint-url $env:R2_ENDPOINT --cache-control no-cache
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          aws s3 cp publish\latest.json "$to/latest.json" --endpoint-url $env:R2_ENDPOINT `
+            --content-type application/json --cache-control no-cache
+          if ($LASTEXITCODE -ne 0) { exit 1 }

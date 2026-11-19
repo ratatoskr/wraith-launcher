@@ -1,0 +1,108 @@
+name: ci
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.head_ref || github.run_id }}-${{ github.actor }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  TARGET: x86_64-pc-windows-msvc
+
+jobs:
+  check:
+    name: check | format, types, lints
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: checkout repository
+        uses: actions/checkout@v7
+
+      - name: install node
+        uses: actions/setup-node@v7
+        with:
+          node-version: lts/*
+          cache: npm
+
+      - name: install rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ env.TARGET }}
+          components: rustfmt, clippy
+
+      - name: cache rust
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: check
+
+      - name: install packages
+        run: npm ci
+
+      # Type-checks the frontend and builds the dist/ the Rust side embeds
+      - name: build frontend
+        run: npm run build
+
+      - name: check format
+        working-directory: src-tauri
+        run: cargo fmt --check
+
+      - name: clippy
+        working-directory: src-tauri
+        run: cargo clippy --target ${{ env.TARGET }} --all-targets -- -D warnings
+
+      - name: test
+        working-directory: src-tauri
+        run: cargo test --target ${{ env.TARGET }}
+
+  build:
+    name: build | x86_64-pc-windows-msvc
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - name: checkout repository
+        uses: actions/checkout@v7
+
+      - name: install node
+        uses: actions/setup-node@v7
+        with:
+          node-version: lts/*
+          cache: npm
+
+      - name: install rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ env.TARGET }}
+
+      - name: cache rust
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: build
+
+      - name: install packages
+        run: npm ci
+
+      # Unsigned. Only releases get signed for the updater
+      - name: build
+        run: npm run tauri build -- --target ${{ env.TARGET }} --config src-tauri/tauri.ci.conf.json
+
+      - name: upload installer
+        uses: actions/upload-artifact@v7
+        with:
+          name: wraith-installer-x64
+          path: src-tauri/target/${{ env.TARGET }}/release/bundle/nsis/*.exe
+          if-no-files-found: error
+
+      - name: upload exe
+        uses: actions/upload-artifact@v7
+        with:
+          name: wraith-ui-x64
+          path: src-tauri/target/${{ env.TARGET }}/release/wraith-ui.exe
+          if-no-files-found: error
