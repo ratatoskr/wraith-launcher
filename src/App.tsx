@@ -443,6 +443,7 @@ function App() {
               plan={planOf(g)}
               proxy={inspectionOf(g)?.installed ?? null}
               exeAntiCheat={inspectionOf(g)?.anticheat ?? []}
+              exeGameEngine={inspectionOf(g)?.game_engine ?? null}
               onInject={(p) => requestInject(p, gameKey(g), false)}
               onPlay={() => requestPlay(g)}
               onPickExe={() => pickExe(g, false)}
@@ -686,6 +687,7 @@ function GameRow(props: {
   plan: wraith.Launch;
   proxy: string | null;
   exeAntiCheat: wraith.AntiCheat[];
+  exeGameEngine: wraith.GameEngine | null;
   onInject: (p: wraith.RunningProcess) => void;
   onPlay: () => void;
   onPickExe: () => void;
@@ -749,6 +751,7 @@ function GameRow(props: {
       </td>
       <td>
         <span className={`hint hint-${g.store.id}`}>{g.store.label}</span>
+        <GameEngineHint found={props.exeGameEngine ?? g.game_engine} />
         <AntiCheatHints found={mergeAntiCheat(g.anticheat, props.exeAntiCheat)} />
       </td>
       <td className="sub" title={props.lastPlayed ? new Date(props.lastPlayed * 1000).toLocaleString() : undefined}>
@@ -970,8 +973,9 @@ function ProcessRow(props: { process: wraith.RunningProcess; action?: ActionStat
       <td>{p.pid}</td>
       <td>{p.arch ?? "?"}</td>
       <td>
+        <GameEngineHint found={p.game_engine} />
         <AntiCheatHints found={p.anticheat} />
-        {p.hints.map((h) => (
+        {p.hints.filter((h) => !(p.game_engine && (h.id === "unity" || h.id === "unreal"))).map((h) => (
           <span key={h.id} className={`hint hint-${h.id}`}>
             {h.label}
           </span>
@@ -1000,6 +1004,18 @@ function antiCheatList(found: wraith.AntiCheat[]): string {
 /** One per product. */
 function mergeAntiCheat(a: wraith.AntiCheat[], b: wraith.AntiCheat[]): wraith.AntiCheat[] {
   return [...a, ...b.filter((ac) => !a.some((x) => x.product.id === ac.product.id))];
+}
+
+function GameEngineHint(props: { found: wraith.GameEngine | null }) {
+  const e = props.found;
+  if (!e) return null;
+  const extra = [e.version, e.variant].filter(Boolean).join(" · ");
+  return (
+    <span className="hint hint-game-engine" title={`Found ${e.file}`}>
+      {e.game_engine.label}
+      {extra && ` · ${extra}`}
+    </span>
+  );
 }
 
 function AntiCheatHints(props: { found: wraith.AntiCheat[] }) {

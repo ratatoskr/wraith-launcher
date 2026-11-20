@@ -62,6 +62,17 @@ export interface AntiCheat {
   file: string;
 }
 
+/** Like Unity or Unreal, from the files beside the game's exe. Not a script engine. */
+export interface GameEngine {
+  game_engine: Named;
+  /** e.g. "IL2CPP" or "Mono" for Unity, "MV" for RPG Maker. */
+  variant: string | null;
+  /** e.g. "2021.3.16", when the files say. */
+  version: string | null;
+  /** What gave it away. */
+  file: string;
+}
+
 /** Running anywhere. Some watch every program, not just their game. */
 export const antiCheatRunning = () => request<AntiCheat[]>("anticheat", {});
 
@@ -78,6 +89,7 @@ export interface RunningProcess {
   /** Strongest first. */
   hints: Named[];
   anticheat: AntiCheat[];
+  game_engine: GameEngine | null;
   score: number;
 }
 
@@ -91,6 +103,7 @@ export interface Inspection {
   /** Proxy names someone else already uses. */
   taken: string[];
   anticheat: AntiCheat[];
+  game_engine: GameEngine | null;
   game: Game;
 }
 
@@ -138,6 +151,7 @@ export const identify = (exe: string) => request<Game>("identify", { exe });
 export type InstalledGame = Game & {
   added: boolean;
   anticheat: AntiCheat[];
+  game_engine: GameEngine | null;
 };
 
 /** For a game no store knows about. Already listed is fine. */
