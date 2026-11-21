@@ -1,28 +1,42 @@
-// Self-update with Tauri's updater. Skipped in dev builds.
+// Self-update with Tauri's updater. Skipped in dev builds. Updates aren't optional,
+// so one found takes over the window until it's in.
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 
 type State =
   | { state: "none" }
-  | { state: "available"; update: Update }
   | { state: "downloading"; version: string; done: number; total?: number }
-  | { state: "failed"; error: string };
+  | { state: "failed"; update: Update; error: string };
 
-export function UpdateBanner() {
+/** Greys out the app with a message on top. */
+export function Blocker(props: { title: string; children?: React.ReactNode }) {
+  return (
+    <div className="blocker">
+      <div className="blocker-card">
+        <h2>{props.title}</h2>
+        {props.children}
+      </div>
+    </div>
+  );
+}
+
+export function Progress(props: { done?: number; total?: number }) {
+  const known = props.total !== undefined && props.done !== undefined;
+  return (
+    <div className={`progress${known ? "" : " progress-unknown"}`}>
+      <div style={known ? { width: `${Math.floor((props.done! / props.total!) * 100)}%` } : undefined} />
+    </div>
+  );
+}
+
+export function LauncherUpdate() {
   const [state, setState] = useState<State>({ state: "none" });
 
-  useEffect(() => {
-    if (import.meta.env.DEV) return;
-    check()
-      .then((update) => update && setState({ state: "available", update }))
-      // Offline or nothing published yet
-      .catch((e) => console.warn("Couldn't check for an app update:", e));
-  }, []);
-
-  async function install(update: Update) {
+  const install = useCallback(async (update: Update) => {
     let done = 0;
     let total: number | undefined;
+    setState({ state: "downloading", version: update.version, done });
     try {
       // Windows closes the app to run the installer, which restarts it after
       await update.downloadAndInstall((event) => {
@@ -31,28 +45,34 @@ export function UpdateBanner() {
         setState({ state: "downloading", version: update.version, done, total });
       });
     } catch (e) {
-      setState({ state: "failed", error: String(e) });
+      setState({ state: "failed", update, error: String(e) });
     }
-  }
+  }, []);
+
+  useEffect(() => {
+    if (import.meta.env.DEV) return;
+    check()
+      .then((update) => update && install(update))
+      // Offline or nothing published yet
+      .catch((e) => console.warn("Couldn't check for a launcher update:", e));
+  }, [install]);
 
   switch (state.state) {
     case "none":
       return null;
-    case "available":
-      return (
-        <div className="update">
-          A new version of the app, {state.update.version}, is available.
-          <button onClick={() => install(state.update)}>Update now</button>
-        </div>
-      );
     case "downloading":
       return (
-        <div className="update">
-          Downloading the app's update, {state.version}...
-          {state.total ? ` ${Math.floor((state.done / state.total) * 100)}%` : ""}
-        </div>
+        <Blocker title={`Updating the launcher to ${state.version}`}>
+          <p>It restarts once it's done.</p>
+          <Progress done={state.done} total={state.total} />
+        </Blocker>
       );
     case "failed":
-      return <div className="update error">Couldn't update the app: {state.error}</div>;
+      return (
+        <Blocker title={`Couldn't update the launcher to ${state.update.version}`}>
+          <p className="error">{state.error}</p>
+          <button onClick={() => install(state.update)}>Try again</button>
+        </Blocker>
+      );
   }
 }

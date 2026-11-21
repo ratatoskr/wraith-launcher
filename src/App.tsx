@@ -2,7 +2,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import * as wraith from "./wraith";
 import { getVersion } from "@tauri-apps/api/app";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import { UpdateBanner } from "./Update";
+import { Blocker, LauncherUpdate, Progress } from "./Update";
 import "./App.css";
 
 const refreshMs = 3000;
@@ -12,29 +12,45 @@ function MismatchBanner(props: { status: Extract<wraith.Status, { state: "mismat
   const { version, needs, dev } = props.status;
   let text: string;
   if (needs === "launcher") {
-    text = `Wraith ${version} is newer than this app, so they can't talk. Update the app and restart it.`;
+    text = `Framework ${version} is newer than this launcher, so they can't talk. Restart the launcher to update it.`;
   } else if (dev) {
-    text = `The dev build of Wraith (${version}) is older than this app, so they can't talk. Rebuild Wraith (zig build) and restart the app.`;
+    text = `The dev build of the framework (${version}) is older than this launcher, so they can't talk. Rebuild it (zig build) and restart the launcher.`;
   } else {
-    text = `Wraith ${version} is older than this app, so they can't talk. The app installs the newest Wraith when it starts: restart it once a newer Wraith is out.`;
+    text = `Framework ${version} is older than this launcher, so they can't talk. The launcher installs the newest framework when it starts, so restart it once a newer one is out.`;
   }
   return <div className="mismatch-banner">{text}</div>;
 }
 
-function describe(status: wraith.Status): string {
+/** Only when something's up. Ready says nothing. */
+function describe(status: wraith.Status): string | null {
   switch (status.state) {
     case "starting":
-      return "Starting Wraith...";
+      return "Starting...";
     case "installing":
-      return `Installing Wraith ${status.version}...`;
     case "ready":
-      return `Wraith ${status.version}`;
+      return null;
     case "mismatch":
-      return `Wraith ${status.version} doesn't match this app`;
+      return "The framework doesn't match this launcher";
     case "failed":
-      return `Wraith couldn't start: ${status.error}`;
+      return `The framework couldn't start: ${status.error}`;
     case "exited":
-      return "Wraith stopped";
+      return "The framework stopped";
+  }
+}
+
+function frameworkVersion(status: wraith.Status): string {
+  switch (status.state) {
+    case "ready":
+      return status.version;
+    case "mismatch":
+      return status.dev ? `${status.version} (dev)` : status.version;
+    case "installing":
+      return "updating";
+    case "starting":
+      return "...";
+    case "failed":
+    case "exited":
+      return "none";
   }
 }
 
@@ -400,9 +416,20 @@ function App() {
     <main className="app">
       <header className="header">
         <h1>Wraith</h1>
-        <span className={`status status-${status.state}`}>{describe(status)}</span>
+        <span className="versions">
+          {/* main is always 0.0.0, only releases get a real version */}
+          Launcher: {version === null ? "..." : version === "0.0.0" ? "dev" : version} - Framework:{" "}
+          {frameworkVersion(status)}
+        </span>
+        {describe(status) && <span className={`status status-${status.state}`}>{describe(status)}</span>}
       </header>
-      <UpdateBanner />
+      <LauncherUpdate />
+      {status.state === "installing" && (
+        <Blocker title={`Updating the Wraith framework to ${status.version}`}>
+          <p>The launcher's ready once it's in.</p>
+          <Progress />
+        </Blocker>
+      )}
       {status.state === "mismatch" && <MismatchBanner status={status} />}
 
       <nav className="tabs">
@@ -538,8 +565,6 @@ function App() {
         <span>
           Made with <span className="heart">♥</span> by Asgard
         </span>
-        {/* main is always 0.0.0, only releases get a real version */}
-        {version && <span>{version === "0.0.0" ? "Dev build" : `v${version}`}</span>}
       </footer>
     </main>
   );

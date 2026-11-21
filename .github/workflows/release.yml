@@ -1,6 +1,7 @@
 name: release
 
-# Run it by hand from the Actions tab with the version to release (like 0.0.2, no "v"). It sets the
+# Run it by hand from the Actions tab. Pick the next patch, minor or major, or manual with a version
+# like 0.0.2 (no "v"). It sets the
 # version with scripts/set-version.mjs, builds, commits, tags `v<version>` and publishes the app
 # to dist.wraith.io on Cloudflare R2. Only the tag is pushed, so main stays at 0.0.0.
 #
@@ -15,9 +16,19 @@ name: release
 on:
   workflow_dispatch:
     inputs:
-      version:
-        description: Version to release, like 0.0.2 or 0.1.0-alpha.1 (no "v")
+      bump:
+        description: What to release. Next patch, minor or major goes from the newest tagged release
         required: true
+        type: choice
+        default: patch
+        options:
+          - patch
+          - minor
+          - major
+          - manual
+      version:
+        description: Only for manual, like 0.0.2 or 0.1.0-alpha.1 (no "v")
+        required: false
         type: string
 
 # Pushes the release tag
@@ -47,8 +58,20 @@ jobs:
       - name: check the version
         shell: bash
         env:
+          BUMP: ${{ inputs.bump }}
           VERSION: ${{ inputs.version }}
         run: |
+          if [ "$BUMP" != manual ]; then
+            # Newest stable release tag, or 0.0.0 if there's none yet
+            last=$(git ls-remote --tags --refs origin 'v*' | sed 's|.*refs/tags/v||' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n1)
+            IFS=. read -r major minor patch <<< "${last:-0.0.0}"
+            case $BUMP in
+              patch) VERSION="$major.$minor.$((patch + 1))" ;;
+              minor) VERSION="$major.$((minor + 1)).0" ;;
+              major) VERSION="$((major + 1)).0.0" ;;
+            esac
+            echo "Last release ${last:-none}, releasing $VERSION"
+          fi
           if ! [[ $VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
             echo "::error::$VERSION isn't a version like 1.2.3 or 1.2.3-alpha.1"
             exit 1

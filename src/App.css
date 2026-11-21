@@ -329,13 +329,63 @@ button.danger:hover:not(:disabled) {
   color: #7ee08a;
 }
 
-.update {
+.versions {
+  color: #9a98a6;
+}
+
+.blocker {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
   display: flex;
   align-items: center;
+  justify-content: center;
+  background-color: rgba(17, 16, 21, 0.85);
+}
+
+.blocker-card {
+  display: flex;
+  flex-direction: column;
   gap: 12px;
-  padding: 8px 12px;
+  width: min(420px, 90vw);
+  padding: 20px;
   border-radius: 8px;
   background-color: #2b2445;
+}
+
+.blocker-card p {
+  margin: 0;
+}
+
+.blocker-card button {
+  align-self: flex-start;
+}
+
+.progress {
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background-color: #111015;
+}
+
+.progress > div {
+  height: 100%;
+  background-color: #8a7ee0;
+  transition: width 0.2s;
+}
+
+.progress-unknown > div {
+  width: 30%;
+  animation: progress-slide 1.2s ease-in-out infinite;
+}
+
+@keyframes progress-slide {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(340%);
+  }
 }
 
 .note {
