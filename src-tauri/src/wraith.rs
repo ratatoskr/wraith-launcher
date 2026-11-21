@@ -76,6 +76,15 @@ impl Wraith {
             Ok(exe) => self.spawn(&exe).await,
             Err(error) => Err(error),
         };
+        if stdout.is_ok() && !self.dev.load(std::sync::atomic::Ordering::Relaxed) {
+            tauri::async_runtime::spawn_blocking(|| {
+                if let Ok(root) = install::root() {
+                    for version in install::remove_old(&root) {
+                        eprintln!("Removed Wraith {version}, nothing had it loaded");
+                    }
+                }
+            });
+        }
         let stdout = match stdout {
             Ok(stdout) => stdout,
             Err(error) => return self.set_status(&app, Status::Failed { error }),

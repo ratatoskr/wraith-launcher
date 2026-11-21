@@ -1,4 +1,5 @@
 //! Installs each Wraith version beside the old ones, since a game might still have one loaded.
+//! Old ones go once nothing has them loaded. Proxies pointing at one move to the current one.
 
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
@@ -126,6 +127,57 @@ fn unpack_into(partial: &Path, root: &Path, version: &str, zip: &[u8]) -> Result
     std::fs::rename(partial, &dir).map_err(|e| failed(&e))
 }
 
+/// Deletes every version but the current one that no game or Wraith has loaded. The rest get
+/// another go next time. Returns what it deleted.
+pub fn remove_old(root: &Path) -> Vec<String> {
+    let Some(current) = current(root) else {
+        return Vec::new();
+    };
+    let keep = folder(&current.version);
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return Vec::new();
+    };
+    let mut removed = Vec::new();
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let path = entry.path();
+        if !path.is_dir() || name == keep {
+            continue;
+        }
+        // Left by an earlier go that didn't finish
+        if name.starts_with('.') && name.ends_with(".old") {
+            let _ = std::fs::remove_dir_all(&path);
+            continue;
+        }
+        if !name.starts_with('v') || in_use(&path) {
+            continue;
+        }
+        // Out of the way first, so nothing finds it half deleted
+        let trash = root.join(format!(".{name}.old"));
+        if std::fs::rename(&path, &trash).is_ok() && std::fs::remove_dir_all(&trash).is_ok() {
+            removed.push(name.trim_start_matches('v').to_owned());
+        }
+    }
+    removed
+}
+
+/// Windows won't let a loaded DLL or running exe be opened for writing.
+fn in_use(dir: &Path) -> bool {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return true;
+    };
+    entries.flatten().any(|entry| {
+        let path = entry.path();
+        if path.is_dir() {
+            return in_use(&path);
+        }
+        let binary = path
+            .extension()
+            .is_some_and(|e| e.eq_ignore_ascii_case("dll") || e.eq_ignore_ascii_case("exe"));
+        binary && std::fs::OpenOptions::new().write(true).open(&path).is_err()
+    })
+}
+
 /// Written then renamed over, so it's never half written.
 fn make_current(root: &Path, version: &str) -> Result<Installed, String> {
     let failed = |e: std::io::Error| format!("Couldn't make Wraith {version} the one to run: {e}");
@@ -139,6 +191,7 @@ fn make_current(root: &Path, version: &str) -> Result<Installed, String> {
 mod tests {
     use super::*;
     use std::io::Write;
+    use std::os::windows::fs::OpenOptionsExt;
 
     /// Under the system temp dir. Deleted on drop.
     struct TempDir(PathBuf);
@@ -207,6 +260,37 @@ mod tests {
                 .trim(),
             "v0.2.0"
         );
+    }
+
+    #[test]
+    fn old_versions_removed_unless_loaded() {
+        let root = TempDir::new("remove-old");
+        for version in ["0.1.0", "0.2.0", "0.3.0"] {
+            unpack(
+                &root.0,
+                version,
+                &zip_of(&[("wraith.exe", version), ("x64/a.dll", "")]),
+            )
+            .unwrap();
+        }
+        make_current(&root.0, "0.3.0").unwrap();
+        std::fs::create_dir_all(root.0.join(".v0.0.9.old")).unwrap();
+        // Like a game with 0.2.0 loaded
+        let loaded = std::fs::File::options()
+            .read(true)
+            .share_mode(1) // FILE_SHARE_READ only
+            .open(root.0.join("v0.2.0/x64/a.dll"))
+            .unwrap();
+
+        assert_eq!(remove_old(&root.0), vec!["0.1.0"]);
+        assert!(!root.0.join("v0.1.0").exists());
+        assert!(root.0.join("v0.2.0/x64/a.dll").is_file());
+        assert!(root.0.join("v0.3.0/wraith.exe").is_file());
+        assert!(!root.0.join(".v0.0.9.old").exists());
+
+        drop(loaded);
+        assert_eq!(remove_old(&root.0), vec!["0.2.0"]);
+        assert_eq!(current(&root.0).unwrap().version, "0.3.0");
     }
 
     #[test]
