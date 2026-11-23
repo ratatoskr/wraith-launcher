@@ -1,85 +1,32 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import * as wraith from "./wraith";
 import { getVersion } from "@tauri-apps/api/app";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { Blocker, LauncherUpdate, Progress } from "./Update";
+import {
+  type ActionState,
+  antiCheatList,
+  ConfirmPanel,
+  errorText,
+  ExePicker,
+  type GameChoice,
+  gameKey,
+  gameName,
+  mergeAntiCheat,
+  type Pending,
+  processKey,
+  runningAs,
+  startLabel,
+} from "./common";
+import { GameRow, GamesView } from "./GamesView";
+import { GameMods, ModsView } from "./ModsView";
+import { type LogLine, MoreView } from "./MoreView";
 import "./App.css";
 
 const refreshMs = 3000;
 const maxLogLines = 200;
 
-function MismatchBanner(props: { status: Extract<wraith.Status, { state: "mismatch" }> }) {
-  const { version, needs, dev } = props.status;
-  let text: string;
-  if (needs === "launcher") {
-    text = `Framework ${version} is newer than this launcher, so they can't talk. Restart the launcher to update it.`;
-  } else if (dev) {
-    text = `The dev build of the framework (${version}) is older than this launcher, so they can't talk. Rebuild it (zig build) and restart the launcher.`;
-  } else {
-    text = `Framework ${version} is older than this launcher, so they can't talk. The launcher installs the newest framework when it starts, so restart it once a newer one is out.`;
-  }
-  return <div className="mismatch-banner">{text}</div>;
-}
-
-/** Only when something's up. Ready says nothing. */
-function describe(status: wraith.Status): string | null {
-  switch (status.state) {
-    case "starting":
-      return "Starting...";
-    case "installing":
-    case "ready":
-      return null;
-    case "mismatch":
-      return "The framework doesn't match this launcher";
-    case "failed":
-      return `The framework couldn't start: ${status.error}`;
-    case "exited":
-      return "The framework stopped";
-  }
-}
-
-function frameworkVersion(status: wraith.Status): string {
-  switch (status.state) {
-    case "ready":
-      return status.version;
-    case "mismatch":
-      return status.dev ? `${status.version} (dev)` : status.version;
-    case "installing":
-      return "updating";
-    case "starting":
-      return "...";
-    case "failed":
-    case "exited":
-      return "none";
-  }
-}
-
-type LogLine = Extract<wraith.WraithEvent, { event: "log" }> & { key: number };
-
-/** By row key. `cancel` stops one still waiting for a game to start. */
-type ActionState = { state: "busy"; label: string; cancel?: () => void } | { state: "failed"; error: string };
-
-type Pending = { key: string; name: string; found: wraith.AntiCheat[]; run: () => void };
-
-type Tab = "games" | "running" | "mods";
-
-const processKey = (p: wraith.RunningProcess) => `pid:${p.pid}`;
-const gameKey = (g: wraith.Game) => `game:${g.id}`;
-
-/** Case-insensitive like Windows. */
-function isWithin(dir: string, path: string): boolean {
-  const d = dir.replace(/[\\/]+$/, "").toLowerCase().replace(/\//g, "\\");
-  const p = path.toLowerCase().replace(/\//g, "\\");
-  return p.startsWith(d + "\\");
-}
-
-/** Picks the likeliest game started from its folder. */
-function runningAs(processes: wraith.RunningProcess[], g: wraith.Game): wraith.RunningProcess | undefined {
-  return processes.filter((p) => p.path && isWithin(g.dir, p.path)).sort((a, b) => b.score - a.score)[0];
-}
-
-/** `played` is unix seconds. */
-type GameChoice = { exe?: string; how: wraith.How; played?: number };
+type Tab = "games" | "mods" | "more";
 
 /** Saved between runs. */
 const choicesKey = "wraith.games";
@@ -92,37 +39,51 @@ function loadChoices(): Record<string, GameChoice> {
   }
 }
 
-function gameName(g: wraith.Game): string {
-  return g.name ?? g.known?.label ?? g.id;
+function MismatchBanner(props: { status: Extract<wraith.Status, { state: "mismatch" }> }) {
+  const { version, needs, dev } = props.status;
+  let text: string;
+  if (needs === "launcher") {
+    text = `Wraith ${version} is newer than this launcher, so they can't talk. Restart the launcher to update it.`;
+  } else if (dev) {
+    text = `The dev build of Wraith (${version}) is older than this launcher, so they can't talk. Rebuild it (zig build) and restart the launcher.`;
+  } else {
+    text = `Wraith ${version} is older than this launcher, so they can't talk. The launcher installs the newest Wraith when it starts, so restart it once a newer one is out.`;
+  }
+  return <div className="banner banner-bad">{text}</div>;
 }
 
-function relativeTo(dir: string, path: string): string {
-  return isWithin(dir, path) ? path.slice(dir.replace(/[\\/]+$/, "").length + 1) : path;
+/** The dot in the corner, and what hovering it says. */
+function statusOf(status: wraith.Status): { tone: "ok" | "busy" | "bad"; text: string } {
+  switch (status.state) {
+    case "starting":
+      return { tone: "busy", text: "Starting" };
+    case "installing":
+      return { tone: "busy", text: `Updating to ${status.version}` };
+    case "ready":
+      return { tone: "ok", text: "Ready" };
+    case "mismatch":
+      return { tone: "bad", text: "Doesn't match this launcher" };
+    case "failed":
+      return { tone: "bad", text: `Couldn't start: ${status.error}` };
+    case "exited":
+      return { tone: "bad", text: "Stopped" };
+  }
 }
 
-/** Relative to the game's folder, or just the file name if elsewhere. */
-function startLabel(dir: string, launch: wraith.Launch): string | null {
-  if (launch.start !== "exe" || !launch.exe || launch.starts_game) return null;
-  return isWithin(dir, launch.exe) ? relativeTo(dir, launch.exe) : launch.exe.split(/[\\/]/).pop()!;
-}
-
-function formatSize(bytes: number): string {
-  return bytes >= 1 << 20 ? `${(bytes / (1 << 20)).toFixed(1)} MB` : `${Math.ceil(bytes / 1024)} KB`;
-}
-
-const relativeTime = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
-
-function formatAgo(seconds: number): string {
-  const days = Math.round((seconds * 1000 - Date.now()) / 86_400_000);
-  if (days > -1) return "today";
-  if (days > -14) return relativeTime.format(days, "day");
-  if (days > -60) return relativeTime.format(Math.round(days / 7), "week");
-  if (days > -730) return relativeTime.format(Math.round(days / 30), "month");
-  return relativeTime.format(Math.round(days / 365), "year");
-}
-
-function errorText(e: unknown): string {
-  return e instanceof wraith.WraithError ? e.code : String(e);
+function frameworkVersion(status: wraith.Status): string {
+  switch (status.state) {
+    case "ready":
+      return status.version;
+    case "mismatch":
+      return status.dev ? `${status.version} (dev)` : status.version;
+    case "installing":
+      return `updating to ${status.version}`;
+    case "starting":
+      return "...";
+    case "failed":
+    case "exited":
+      return "not running";
+  }
 }
 
 function App() {
@@ -138,7 +99,6 @@ function App() {
   const [actions, setActions] = useState<Record<string, ActionState>>({});
   const [pending, setPending] = useState<Pending | null>(null);
   const [log, setLog] = useState<LogLine[]>([]);
-  const logRef = useRef<HTMLElement>(null);
   const ready = status.state === "ready";
 
   useEffect(() => {
@@ -146,10 +106,6 @@ function App() {
       .then(setVersion)
       .catch(() => {});
   }, []);
-
-  useEffect(() => {
-    logRef.current?.scrollTo({ top: logRef.current.scrollHeight });
-  }, [log]);
 
   useEffect(() => {
     // Listen first so we don't miss a change in between
@@ -175,7 +131,7 @@ function App() {
       setAntiCheatRunning(running);
       setListError(null);
     } catch (e) {
-      setListError(String(e));
+      setListError(errorText(e));
     }
   }, [showAll]);
 
@@ -192,7 +148,7 @@ function App() {
       setGames(await wraith.games());
       setGamesError(null);
     } catch (e) {
-      setGamesError(String(e));
+      setGamesError(errorText(e));
     }
   }, []);
 
@@ -213,8 +169,46 @@ function App() {
   useEffect(() => {
     if (ready) refreshCatalog();
   }, [ready, refreshCatalog]);
+
+  // Asked for by a wraith://install link. Shown at the top of Mods for the player to install, never by itself
+  const [asked, setAsked] = useState<string | null>(null);
+  useEffect(() => {
+    const show = (id: string) => {
+      setAsked(id);
+      setTab("mods");
+    };
+    const unlisten = wraith.onInstallLink((id) => {
+      show(id);
+      void wraith.takeInstallLink();
+    });
+    wraith.takeInstallLink().then((id) => id && show(id));
+    return () => void unlisten.then((f) => f());
+  }, []);
+
+  // Art from the stores' own caches, asked once per game. Null is none, so it's not asked again
+  const [art, setArt] = useState<Record<string, string | null>>({});
+  useEffect(() => {
+    for (const g of games ?? []) {
+      if (g.id in art || !g.id.startsWith("steam-")) continue;
+      setArt((a) => ({ ...a, [g.id]: null }));
+      wraith
+        .gameArt(g.id)
+        .then((url) => url && setArt((a) => ({ ...a, [g.id]: url })))
+        .catch(() => {});
+    }
+    // Only ones not asked yet
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [games]);
+
+  // Then the hub's copies, for the rest. Once a run, since they barely change
+  const [hubArt, setHubArt] = useState<Record<string, string>>({});
+  useEffect(() => {
+    if (ready) wraith.hubArt().then(setHubArt, () => {});
+  }, [ready]);
+
   const [modsOf, setModsOf] = useState<string | null>(null);
   const modsFor = (g: wraith.Game) => catalog?.mods.filter((p) => p.games.includes(g.id)) ?? [];
+  const names = useMemo(() => new Map((games ?? []).map((g) => [g.id, gameName(g)])), [games]);
 
   async function modAction(name: string, change: "install" | "remove") {
     await perform(`mod:${name}`, change === "install" ? "Installing..." : "Removing...", () =>
@@ -232,8 +226,10 @@ function App() {
   const choiceOf = (g: wraith.Game): GameChoice => choices[g.id] ?? { how: "inject" };
   const planOf = (g: wraith.Game, pick = choiceOf(g).exe): wraith.Launch => wraith.withPick(g.launch, pick);
   /** Store's time or ours, whichever is later. */
-  const lastPlayed = (g: wraith.Game): number | null =>
-    Math.max(g.last_played ?? 0, choiceOf(g).played ?? 0) || null;
+  const lastPlayed = useCallback(
+    (g: wraith.Game): number | null => Math.max(g.last_played ?? 0, choices[g.id]?.played ?? 0) || null,
+    [choices],
+  );
   function choose(id: string, change: Partial<GameChoice>) {
     setChoices((all) => {
       const next: Record<string, GameChoice> = { ...all, [id]: { ...(all[id] ?? { how: "inject" }), ...change } };
@@ -279,7 +275,7 @@ function App() {
     refreshProcesses();
   }
 
-  /** Asks the user to OK the risk first if there's anti-cheat. */
+  /** Asks the player to OK the risk first if there's anti-cheat. */
   function guarded(key: string, name: string, found: wraith.AntiCheat[], run: () => void) {
     if (found.length !== 0 || antiCheatRunning.length !== 0) setPending({ key, name, found, run });
     else run();
@@ -287,9 +283,9 @@ function App() {
 
   function requestInject(p: wraith.RunningProcess, key = processKey(p), addToGames = true) {
     guarded(key, p.name, p.anticheat, () =>
-      perform(key, "Injecting...", async () => {
+      perform(key, "Adding Wraith...", async () => {
         await wraith.inject(p.pid);
-        // Injected from the running list, so it's a game. List it if no store does
+        // Added from what's running, so it's a game. List it if no store does
         if (addToGames && p.path) {
           await wraith.addGame(p.path).catch(() => null);
           refreshGames();
@@ -307,7 +303,7 @@ function App() {
     if (typeof dir !== "string") return;
     try {
       const exes = await wraith.executables(dir, null);
-      if (exes.length === 0) setAddError(`No exes in ${dir}`);
+      if (exes.length === 0) setAddError(`There's no exe in ${dir}`);
       else if (exes.length === 1) await addExe(exes[0].path);
       else setAdding({ dir, exes });
     } catch (e) {
@@ -375,8 +371,8 @@ function App() {
           : plan.start === "none"
             ? `Start it from ${g.store.label}...`
             : startLabel(g.dir, plan)
-              ? "Waiting for the game (log in)..."
-              : "Waiting for it...";
+              ? "Waiting for the game (log in if it asks)..."
+              : "Waiting for it to start...";
       perform(
         key,
         label,
@@ -407,61 +403,70 @@ function App() {
     }
   }
 
-  const confirmation = (key: string, colSpan: number) =>
-    pending?.key === key && (
-      <ConfirmRow pending={pending} running={antiCheatRunning} colSpan={colSpan} onCancel={() => setPending(null)} />
-    );
+  const confirmation = (key: string) =>
+    pending?.key === key && <ConfirmPanel pending={pending} running={antiCheatRunning} onCancel={() => setPending(null)} />;
+
+  const shown = statusOf(status);
+  const modUpdates = catalog?.mods.filter(wraith.hasUpdate).length ?? 0;
+  const runningGames = (games ?? []).filter((g) => runningAs(processes, g)?.wraith).length;
 
   return (
     <main className="app">
-      <header className="header">
-        <h1>Wraith</h1>
-        <span className="versions">
-          {/* main is always 0.0.0, only releases get a real version */}
-          Launcher: {version === null ? "..." : version === "0.0.0" ? "dev" : version} - Framework:{" "}
-          {frameworkVersion(status)}
+      <header className="topbar">
+        <div className="brand">
+          <img src="/favicon.png" alt="" width="28" height="28" />
+          <span>Wraith</span>
+        </div>
+        <nav className="tabs">
+          <button className={tab === "games" ? "on" : undefined} onClick={() => setTab("games")}>
+            Games
+            {runningGames > 0 && <span className="dot ok" title="Wraith is in a game" />}
+          </button>
+          <button className={tab === "mods" ? "on" : undefined} onClick={() => setTab("mods")}>
+            Mods
+            {modUpdates > 0 && <span className="badge">{modUpdates}</span>}
+          </button>
+          <button className={tab === "more" ? "on" : undefined} onClick={() => setTab("more")}>
+            More
+          </button>
+        </nav>
+        <span className={`status status-${shown.tone}`} title={`Wraith ${frameworkVersion(status)}`}>
+          <span className={`dot ${shown.tone}`} />
+          {shown.text}
         </span>
-        {describe(status) && <span className={`status status-${status.state}`}>{describe(status)}</span>}
       </header>
       <LauncherUpdate />
       {status.state === "installing" && (
-        <Blocker title={`Updating the Wraith framework to ${status.version}`}>
-          <p>The launcher's ready once it's in.</p>
+        <Blocker title={`Updating Wraith to ${status.version}`}>
+          <p>It's ready to play once it's in.</p>
           <Progress />
         </Blocker>
       )}
       {status.state === "mismatch" && <MismatchBanner status={status} />}
-
-      <nav className="tabs">
-        <button className={tab === "games" ? "active" : undefined} onClick={() => setTab("games")}>
-          Games{games ? ` (${games.length})` : ""}
-        </button>
-        <button className={tab === "running" ? "active" : undefined} onClick={() => setTab("running")}>
-          Running
-        </button>
-        <button className={tab === "mods" ? "active" : undefined} onClick={() => setTab("mods")}>
-          Mods
-          {catalog && catalog.mods.some(wraith.hasUpdate) && <span className="badge">updates</span>}
-        </button>
-      </nav>
-
+      {(status.state === "failed" || status.state === "exited") && (
+        <div className="banner banner-bad">
+          {status.state === "failed" ? `Wraith couldn't start: ${status.error}.` : "Wraith stopped."} Restart the launcher to try again. More has the log.
+        </div>
+      )}
       {antiCheatRunning.length !== 0 && (
-        <div className="anticheat-banner">
-          Anti-cheat is running: {antiCheatList(antiCheatRunning)}. It may watch every program, so injecting into any
-          game could be detected while it runs.
+        <div className="banner banner-warn">
+          ⚠ Anti-cheat is running: {antiCheatList(antiCheatRunning)}. It may watch every program, so it could notice Wraith in any game while it runs.
         </div>
       )}
 
-      {tab === "games" ? (
-        <GamesTab
+      {tab === "games" && (
+        <GamesView
           games={games}
           error={gamesError}
           ready={ready}
           onRefresh={refreshGames}
+          onAdd={addFolder}
+          addError={addError}
+          adding={adding && <ExePicker dir={adding.dir} store={null} exes={adding.exes} onPick={addExe} onCancel={() => setAdding(null)} />}
           lastPlayed={lastPlayed}
-          confirmation={confirmation}
           row={(g) => (
             <GameRow
+              key={g.id}
               game={g}
               lastPlayed={lastPlayed(g)}
               process={runningAs(processes, g)}
@@ -479,602 +484,52 @@ function App() {
               modsOpen={modsOf === g.id}
               onMods={() => setModsOf(modsOf === g.id ? null : g.id)}
               onRemove={g.added ? () => removeGame(g) : undefined}
+              art={art[g.id] ?? hubArt[g.id] ?? null}
+              below={
+                <>
+                  {picking?.id === g.id && (
+                    <ExePicker dir={g.dir} store={g.store} exes={picking.exes} onPick={(exe) => picked(g, exe)} onCancel={() => setPicking(null)} />
+                  )}
+                  {confirmation(gameKey(g))}
+                  {modsOf === g.id && <GameMods mods={modsFor(g)} running={!!runningAs(processes, g)?.wraith} actions={actions} onChange={modAction} />}
+                </>
+              }
             />
           )}
-          picker={(g) =>
-            picking?.id === g.id && (
-              <ExePicker dir={g.dir} store={g.store} exes={picking.exes} onPick={(exe) => picked(g, exe)} onCancel={() => setPicking(null)} />
-            )
-          }
-          onAdd={addFolder}
-          adding={
-            adding && <ExePicker dir={adding.dir} store={null} exes={adding.exes} onPick={addExe} onCancel={() => setAdding(null)} />
-          }
-          addError={addError}
-          panel={(g) =>
-            modsOf === g.id && (
-              <tr className="mods-panel">
-                <td colSpan={gameColumns}>
-                  {runningAs(processes, g)?.wraith && (
-                    <p className="note">
-                      Wraith is in it: changes here reach it once the mod's reloaded (in game, from the Plugins
-                      window).
-                    </p>
-                  )}
-                  <ModList mods={modsFor(g)} actions={actions} onChange={modAction} />
-                </td>
-              </tr>
-            )
-          }
         />
-      ) : tab === "mods" ? (
-        <ModsTab
+      )}
+      {tab === "mods" && (
+        <ModsView
           catalog={catalog}
           error={catalogError}
           games={games ?? []}
+          gameName={(id) => names.get(id) ?? id}
           ready={ready}
           actions={actions}
           onRefresh={refreshCatalog}
           onChange={modAction}
           onUpdateAll={updateAllMods}
+          asked={asked}
+          onDismissAsked={() => setAsked(null)}
         />
-      ) : (
-        <>
-          <div className="toolbar">
-            <label>
-              <input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.currentTarget.checked)} />
-              Include programs without a window
-            </label>
-            <button onClick={refreshProcesses} disabled={!ready}>
-              Refresh
-            </button>
-          </div>
-          {listError && <p className="error">Couldn't list processes: {listError}</p>}
-          <div className="list">
-            <table>
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>PID</th>
-                  <th>Arch</th>
-                  <th>Looks like</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {processes.map((p) => (
-                  <Fragment key={p.pid}>
-                    <ProcessRow process={p} action={actions[processKey(p)]} onInject={() => requestInject(p)} />
-                    {confirmation(processKey(p), 5)}
-                  </Fragment>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </>
       )}
-
-      <section className="log" ref={logRef}>
-        {log.map((line) => (
-          <div key={line.key} className={`log-${line.level}`}>
-            {line.message}
-          </div>
-        ))}
-      </section>
-      <footer className="footer">
-        <span>
-          Made with <span className="heart">♥</span> by Asgard
-        </span>
-      </footer>
+      {tab === "more" && (
+        <MoreView
+          processes={processes}
+          listError={listError}
+          showAll={showAll}
+          onShowAll={setShowAll}
+          ready={ready}
+          onRefresh={refreshProcesses}
+          actions={actions}
+          onInject={(p) => requestInject(p)}
+          confirmation={(p) => confirmation(processKey(p))}
+          log={log}
+          launcherVersion={version}
+          frameworkVersion={frameworkVersion(status)}
+        />
+      )}
     </main>
-  );
-}
-
-const gameColumns = 4;
-
-type GameSort = { by: "name" | "store" | "played"; descending: boolean };
-
-function GamesTab(props: {
-  games: wraith.InstalledGame[] | null;
-  error: string | null;
-  ready: boolean;
-  onRefresh: () => void;
-  lastPlayed: (g: wraith.InstalledGame) => number | null;
-  confirmation: (key: string, colSpan: number) => React.ReactNode;
-  row: (g: wraith.InstalledGame) => React.ReactNode;
-  picker: (g: wraith.InstalledGame) => React.ReactNode;
-  panel: (g: wraith.InstalledGame) => React.ReactNode;
-  onAdd: () => void;
-  adding: React.ReactNode;
-  addError: string | null;
-}) {
-  const [filter, setFilter] = useState("");
-  const [sort, setSort] = useState<GameSort>({ by: "played", descending: true });
-  const { lastPlayed } = props;
-  const shown = useMemo(() => {
-    const f = filter.trim().toLowerCase();
-    const nameOf = (g: wraith.InstalledGame) => gameName(g);
-    const all = props.games ?? [];
-    const byName = (a: wraith.InstalledGame, b: wraith.InstalledGame) => nameOf(a).localeCompare(nameOf(b));
-    const compare = {
-      name: byName,
-      store: (a: wraith.InstalledGame, b: wraith.InstalledGame) => a.store.label.localeCompare(b.store.label),
-      played: (a: wraith.InstalledGame, b: wraith.InstalledGame) => (lastPlayed(a) ?? 0) - (lastPlayed(b) ?? 0),
-    }[sort.by];
-    const direction = sort.descending ? -1 : 1;
-    return (f ? all.filter((g) => nameOf(g).toLowerCase().includes(f)) : all)
-      .slice()
-      .sort((a, b) => direction * compare(a, b) || byName(a, b));
-  }, [props.games, filter, sort, lastPlayed]);
-
-  /** Click again to flip. Times start newest first, names A to Z. */
-  const header = (by: GameSort["by"], label: string) => (
-    <th aria-sort={sort.by === by ? (sort.descending ? "descending" : "ascending") : undefined}>
-      <button
-        className="sort"
-        onClick={() => setSort(sort.by === by ? { by, descending: !sort.descending } : { by, descending: by === "played" })}
-      >
-        {label}
-        {sort.by === by && (sort.descending ? " ▼" : " ▲")}
-      </button>
-    </th>
-  );
-
-  return (
-    <>
-      <div className="toolbar">
-        <input
-          className="filter"
-          type="search"
-          placeholder="Find a game"
-          value={filter}
-          onChange={(e) => setFilter(e.currentTarget.value)}
-        />
-        <button onClick={props.onRefresh} disabled={!props.ready}>
-          Refresh
-        </button>
-        <button onClick={props.onAdd} disabled={!props.ready} title="Add a game no store knows about, from its folder">
-          Add a game...
-        </button>
-      </div>
-      {props.error && <p className="error">Couldn't list games: {props.error}</p>}
-      {props.addError && <p className="error">Couldn't add it: {props.addError}</p>}
-      {props.adding && (
-        <div className="list">
-          <table>
-            <tbody>{props.adding}</tbody>
-          </table>
-        </div>
-      )}
-      <div className="list">
-        <table>
-          <thead>
-            <tr>
-              {header("name", "Name")}
-              {header("store", "Store")}
-              {header("played", "Last played")}
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {props.games === null && (
-              <tr>
-                <td colSpan={gameColumns} className="empty">
-                  {props.ready ? "Looking for games..." : "Waiting for Wraith..."}
-                </td>
-              </tr>
-            )}
-            {props.games?.length === 0 && (
-              <tr>
-                <td colSpan={gameColumns} className="empty">
-                  No games found from Steam, GOG, Epic or Xbox.
-                </td>
-              </tr>
-            )}
-            {shown.map((g) => (
-              <Fragment key={g.id}>
-                {props.row(g)}
-                {props.picker(g)}
-                {props.panel(g)}
-                {props.confirmation(gameKey(g), gameColumns)}
-              </Fragment>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </>
-  );
-}
-
-function playTitle(g: wraith.InstalledGame, plan: wraith.Launch, how: wraith.How): string {
-  const store = g.store.label;
-  if (how === "proxy") return "Puts Wraith's proxy DLL beside the game (if it isn't there), then starts it: it loads Wraith itself";
-  const first = startLabel(g.dir, plan);
-  switch (plan.start) {
-    case "store":
-      return `Starts it through ${store}, and Wraith goes in as the game starts`;
-    case "exe":
-      return first
-        ? `Starts ${first}, and Wraith goes in as the game starts after it`
-        : "Starts the game with Wraith in it from the start";
-    case "none":
-      return `Start it from ${store}: Wraith goes in as the game starts`;
-  }
-}
-
-function GameRow(props: {
-  game: wraith.InstalledGame;
-  /** Unix seconds. */
-  lastPlayed: number | null;
-  process?: wraith.RunningProcess;
-  action?: ActionState;
-  choice: GameChoice;
-  plan: wraith.Launch;
-  proxy: string | null;
-  exeAntiCheat: wraith.AntiCheat[];
-  exeGameEngine: wraith.GameEngine | null;
-  onInject: (p: wraith.RunningProcess) => void;
-  onPlay: () => void;
-  onPickExe: () => void;
-  onHow: (how: wraith.How) => void;
-  mods: wraith.Mod[];
-  modsOpen: boolean;
-  onMods: () => void;
-  onRemove?: () => void;
-}) {
-  const { game: g, process: p, action, choice, plan, proxy } = props;
-  const busy = action?.state === "busy" ? action : null;
-  const waits = choice.how === "inject" && plan.start === "none";
-  const first = startLabel(g.dir, plan);
-
-  let main: React.ReactNode;
-  if (busy) {
-    main = (
-      <>
-        <span className="running">{busy.label}</span>
-        {busy.cancel && <button onClick={busy.cancel}>Cancel</button>}
-      </>
-    );
-  } else if (p) {
-    main = <button onClick={() => props.onInject(p)}>{p.wraith ? "Reload" : "Inject"}</button>;
-  } else {
-    main = (
-      <button onClick={props.onPlay} title={playTitle(g, plan, choice.how)}>
-        {waits ? "Wait for it" : "Play with Wraith"}
-      </button>
-    );
-  }
-
-  return (
-    <tr>
-      <td title={g.dir}>
-        {gameName(g)}
-        <div className="sub">
-          {first && <>starts {first}, Wraith goes into </>}
-          {plan.game_exe ? relativeTo(g.dir, plan.game_exe) : "Which exe is the game: asked when you play"}{" "}
-          <button className="link" onClick={props.onPickExe} disabled={!!busy}>
-            {plan.game_exe ? "change" : "choose now"}
-          </button>
-          {props.onRemove && (
-            <>
-              {" · "}
-              <button className="link" onClick={props.onRemove} disabled={!!busy} title="You added this one. Take it off the list (nothing's deleted)">
-                remove
-              </button>
-            </>
-          )}
-          {props.mods.length > 0 && (
-            <>
-              {" · "}
-              <button className="link" onClick={props.onMods}>
-                {props.modsOpen ? "hide mods" : `${props.mods.length} mod${props.mods.length > 1 ? "s" : ""}`}
-              </button>
-              {props.mods.some(wraith.hasUpdate) && <span className="badge">update</span>}
-            </>
-          )}
-        </div>
-      </td>
-      <td>
-        <span className={`hint hint-${g.store.id}`}>{g.store.label}</span>
-        <GameEngineHint found={props.exeGameEngine ?? g.game_engine} />
-        <AntiCheatHints found={mergeAntiCheat(g.anticheat, props.exeAntiCheat)} />
-      </td>
-      <td className="sub" title={props.lastPlayed ? new Date(props.lastPlayed * 1000).toLocaleString() : undefined}>
-        {props.lastPlayed ? formatAgo(props.lastPlayed) : "—"}
-      </td>
-      <td className="actions">
-        {p?.wraith && <span className="attached">Wraith attached</span>}
-        {p && !p.wraith && !busy && <span className="running">Running</span>}
-        {proxy && (
-          <span className="attached" title={`Wraith's ${proxy} is beside it: it loads Wraith however it's started`}>
-            Proxy in
-          </span>
-        )}
-        {action?.state === "failed" && <span className="error">{action.error}</span>}
-        <select
-          value={choice.how}
-          disabled={!!busy}
-          onChange={(e) => props.onHow(e.currentTarget.value as wraith.How)}
-          title="How Wraith goes into the game"
-        >
-          <option value="inject">Inject</option>
-          <option value="proxy">Proxy DLL</option>
-        </select>
-        {main}
-      </td>
-    </tr>
-  );
-}
-
-/** Stores often start a launcher instead of the game. */
-function ExePicker(props: {
-  dir: string;
-  store: wraith.Named | null;
-  exes: wraith.Exe[];
-  onPick: (exe: string) => void;
-  onCancel: () => void;
-}) {
-  return (
-    <tr className="picker">
-      <td colSpan={gameColumns}>
-        <p>Which is the game? Wraith goes into the one you pick (its launcher, if it has one, is left alone).</p>
-        <ul>
-          {props.exes.map((e) => (
-            <li key={e.path}>
-              <button onClick={() => props.onPick(e.path)}>{relativeTo(props.dir, e.path)}</button>
-              <span className="sub">
-                {formatSize(e.size)}
-                {e.store && props.store && ` · what ${props.store.label} starts`}
-              </span>
-            </li>
-          ))}
-        </ul>
-        <button onClick={props.onCancel}>Cancel</button>
-      </td>
-    </tr>
-  );
-}
-
-function ModList(props: {
-  mods: wraith.Mod[];
-  actions: Record<string, ActionState>;
-  onChange: (name: string, change: "install" | "remove") => void;
-  forWhat?: (p: wraith.Mod) => React.ReactNode;
-}) {
-  return (
-    <table className="mod-list">
-      <tbody>
-        {props.mods.map((p) => (
-          <tr key={p.id}>
-            <td title={p.why ?? undefined}>
-              {p.title || p.id}
-              {p.kind === "project" && <span className="tag">Project</span>}
-              {p.featured && <span className="tag">Recommended</span>}
-              <div className="sub">{p.summary}</div>
-              <div className="sub">
-                {p.id} · by {p.author}
-              </div>
-            </td>
-            {props.forWhat && <td className="sub">{props.forWhat(p)}</td>}
-            <td className="actions">
-              <ModActions mod={p} action={props.actions[`mod:${p.id}`]} onChange={props.onChange} />
-            </td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  );
-}
-
-function ModActions(props: {
-  mod: wraith.Mod;
-  action?: ActionState;
-  onChange: (name: string, change: "install" | "remove") => void;
-}) {
-  const { mod: p, action } = props;
-  if (action?.state === "busy") return <span className="running">{action.label}</span>;
-  return (
-    <>
-      {action?.state === "failed" && <span className="error">{action.error}</span>}
-      {p.revoked && (
-        <span className="error" title="Wraith won't load it. Update or remove it">
-          pulled from the hub
-        </span>
-      )}
-      {p.installed ? (
-        <span className="attached" title="Installed">
-          {p.installed}
-        </span>
-      ) : p.latest ? (
-        <span className="sub">{p.latest}</span>
-      ) : (
-        <span className="note" title={`Every version needs Wraith ${p.needs_wraith} or newer`}>
-          needs Wraith {p.needs_wraith}
-        </span>
-      )}
-      {!p.installed && p.latest && <button onClick={() => props.onChange(p.id, "install")}>Install</button>}
-      {wraith.hasUpdate(p) && <button onClick={() => props.onChange(p.id, "install")}>{p.revoked ? "Replace with" : "Update to"} {p.latest}</button>}
-      {p.installed && (
-        <button className="secondary" onClick={() => props.onChange(p.id, "remove")}>
-          Remove
-        </button>
-      )}
-    </>
-  );
-}
-
-/** Installed first, then recommended, then ones for the user's games, then the rest. */
-function ModsTab(props: {
-  catalog: wraith.ModCatalog | null;
-  error: string | null;
-  games: wraith.Game[];
-  ready: boolean;
-  actions: Record<string, ActionState>;
-  onRefresh: () => void;
-  onChange: (name: string, change: "install" | "remove") => void;
-  onUpdateAll: () => void;
-}) {
-  const [filter, setFilter] = useState("");
-  const names = useMemo(() => new Map(props.games.map((g) => [g.id, gameName(g)])), [props.games]);
-  const rank = (p: wraith.Mod) => (p.installed ? 0 : p.featured ? 1 : p.games.length > 0 ? 2 : p.any_game ? 3 : 4);
-  const shown = useMemo(() => {
-    const f = filter.trim().toLowerCase();
-    return (props.catalog?.mods ?? [])
-      .filter((p) => !f || `${p.title} ${p.id} ${p.summary} ${p.kind}`.toLowerCase().includes(f))
-      .sort((a, b) => rank(a) - rank(b) || (a.title || a.id).localeCompare(b.title || b.id));
-  }, [props.catalog, filter]);
-  const updates = props.catalog?.mods.filter(wraith.hasUpdate).length ?? 0;
-  const updating = props.actions["mods"];
-
-  const forWhat = (p: wraith.Mod) =>
-    p.any_game ? "Any game" : p.games.length > 0 ? p.games.map((id) => names.get(id) ?? id).join(", ") : "None of your games";
-
-  return (
-    <>
-      <div className="toolbar">
-        <input
-          className="filter"
-          type="search"
-          placeholder="Find a mod"
-          value={filter}
-          onChange={(e) => setFilter(e.currentTarget.value)}
-        />
-        {updating?.state === "busy" ? (
-          <span className="running">{updating.label}</span>
-        ) : (
-          updates > 0 && <button onClick={props.onUpdateAll}>Update all ({updates})</button>
-        )}
-        {updating?.state === "failed" && <span className="error">{updating.error}</span>}
-        <button onClick={props.onRefresh} disabled={!props.ready}>
-          Refresh
-        </button>
-      </div>
-      {props.error && <p className="error">Couldn't get mods from the hub: {props.error}</p>}
-      <div className="list">
-        {props.catalog === null ? (
-          <p className="empty">{props.ready ? "Getting mods from the hub..." : "Waiting for Wraith..."}</p>
-        ) : shown.length === 0 ? (
-          <p className="empty">No mods{filter ? " match" : " published yet"}.</p>
-        ) : (
-          <ModList mods={shown} actions={props.actions} onChange={props.onChange} forWhat={forWhat} />
-        )}
-      </div>
-      {props.catalog && <p className="sub">Installed in {props.catalog.mods_dir}</p>}
-      <CliToggle />
-    </>
-  );
-}
-
-/** For `wraith dev add` and friends. */
-function CliToggle() {
-  const [cli, setCli] = useState<wraith.CliStatus | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
-    wraith.cliStatus().then(setCli, (e) => setError(errorText(e)));
-  }, []);
-  if (!cli) return error ? <p className="sub error">{error}</p> : null;
-  const toggle = (on: boolean) => {
-    setError(null);
-    wraith.setCliOnPath(on).then(setCli, (e) => setError(errorText(e)));
-  };
-  return (
-    <p className="sub">
-      <label title={`It's in ${cli.dir}. New terminals pick up the change`}>
-        <input type="checkbox" checked={cli.on_path} onChange={(e) => toggle(e.currentTarget.checked)} />
-        <code>wraith</code> command on PATH (for building plugins: <code>wraith dev add</code>)
-      </label>
-      {error && <span className="error"> {error}</span>}
-    </p>
-  );
-}
-
-function ProcessRow(props: { process: wraith.RunningProcess; action?: ActionState; onInject: () => void }) {
-  const { process: p, action } = props;
-  const busy = action?.state === "busy";
-  const label = action?.state === "busy" ? action.label : null;
-  return (
-    <tr className={p.score <= 20 ? "unlikely" : undefined}>
-      <td title={p.path ?? undefined}>{p.name}</td>
-      <td>{p.pid}</td>
-      <td>{p.arch ?? "?"}</td>
-      <td>
-        <GameEngineHint found={p.game_engine} />
-        <AntiCheatHints found={p.anticheat} />
-        {p.hints.filter((h) => !(p.game_engine && (h.id === "unity" || h.id === "unreal"))).map((h) => (
-          <span key={h.id} className={`hint hint-${h.id}`}>
-            {h.label}
-          </span>
-        ))}
-      </td>
-      <td className="actions">
-        {p.wraith && <span className="attached">Wraith attached</span>}
-        {!p.inspected && p.windowed && (
-          <span className="note" title="It's probably running as administrator: run Wraith as administrator to inject">
-            Elevated?
-          </span>
-        )}
-        {action?.state === "failed" && <span className="error">{action.error}</span>}
-        <button onClick={props.onInject} disabled={busy}>
-          {label ?? (p.wraith ? "Reload" : "Inject")}
-        </button>
-      </td>
-    </tr>
-  );
-}
-
-function antiCheatList(found: wraith.AntiCheat[]): string {
-  return found.map((ac) => ac.product.label).join(", ");
-}
-
-/** One per product. */
-function mergeAntiCheat(a: wraith.AntiCheat[], b: wraith.AntiCheat[]): wraith.AntiCheat[] {
-  return [...a, ...b.filter((ac) => !a.some((x) => x.product.id === ac.product.id))];
-}
-
-function GameEngineHint(props: { found: wraith.GameEngine | null }) {
-  const e = props.found;
-  if (!e) return null;
-  const extra = [e.version, e.variant].filter(Boolean).join(" · ");
-  return (
-    <span className="hint hint-game-engine" title={`Found ${e.file}`}>
-      {e.game_engine.label}
-      {extra && ` · ${extra}`}
-    </span>
-  );
-}
-
-function AntiCheatHints(props: { found: wraith.AntiCheat[] }) {
-  return props.found.map((ac) => (
-    <span key={ac.product.id} className="hint hint-anticheat" title={`Found ${ac.file}`}>
-      ⚠ {ac.product.label}
-    </span>
-  ));
-}
-
-function ConfirmRow(props: { pending: Pending; running: wraith.AntiCheat[]; colSpan: number; onCancel: () => void }) {
-  const { pending, running } = props;
-  return (
-    <tr className="confirm">
-      <td colSpan={props.colSpan}>
-        <p>
-          {pending.found.length !== 0 ? (
-            <>
-              <strong>{pending.name}</strong> is protected by {antiCheatList(pending.found)}.
-            </>
-          ) : (
-            <>Anti-cheat is running on this computer: {antiCheatList(running)}.</>
-          )}{" "}
-          Injecting Wraith may be detected, and can get the account banned. Only go on if you know this game allows it
-          (single-player or offline, say).
-        </p>
-        <div className="confirm-actions">
-          <button className="danger" onClick={pending.run}>
-            I understand the risk, go on
-          </button>
-          <button onClick={props.onCancel}>Cancel</button>
-        </div>
-      </td>
-    </tr>
   );
 }
 

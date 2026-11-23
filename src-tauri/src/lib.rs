@@ -1,11 +1,14 @@
+mod art;
 pub mod cli;
 mod install;
+mod links;
 mod wraith;
 
 use std::sync::Arc;
 
 use serde_json::Value;
 use tauri::{Manager, State};
+use tauri_plugin_deep_link::DeepLinkExt;
 
 use wraith::{Reply, Status, Wraith};
 
@@ -22,6 +25,12 @@ async fn wraith_request(
 #[tauri::command]
 fn wraith_status(wraith: State<'_, Arc<Wraith>>) -> Status {
     wraith.status()
+}
+
+/// A mod a `wraith://install/<id>` link asked for before the UI was listening.
+#[tauri::command]
+fn take_install_link(asked: State<'_, links::Asked>) -> Option<String> {
+    asked.take()
 }
 
 #[derive(serde::Serialize)]
@@ -72,11 +81,25 @@ pub fn add_cli() {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        // First, so a second launch from a link goes to this one instead. Its URL reaches deep-link's on_open_url
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| links::show(app)))
+        .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             std::thread::spawn(place_shim);
+            app.manage(links::Asked::default());
+            // The installer registers wraith:// too. This keeps it pointing here, like for dev builds
+            #[cfg(windows)]
+            if let Err(error) = app.deep_link().register_all() {
+                eprintln!("Couldn't register wraith:// links: {error}");
+            }
+            let handle = app.handle().clone();
+            app.deep_link().on_open_url(move |event| links::open(&handle, event.urls().into_iter().map(|u| u.to_string())));
+            if let Ok(Some(urls)) = app.deep_link().get_current() {
+                links::open(app.handle(), urls.into_iter().map(|u| u.to_string()));
+            }
             let wraith = Arc::new(Wraith::new());
             app.manage(wraith.clone());
             tauri::async_runtime::spawn(wraith.start(app.handle().clone()));
@@ -86,7 +109,10 @@ pub fn run() {
             wraith_request,
             wraith_status,
             cli_status,
-            set_cli_on_path
+            set_cli_on_path,
+            take_install_link,
+            art::game_art,
+            art::hub_art
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

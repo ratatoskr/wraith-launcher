@@ -43,7 +43,7 @@ pub fn current(root: &Path) -> Option<Installed> {
     })
 }
 
-async fn download(url: &str, timeout: Option<Duration>) -> Result<Vec<u8>, String> {
+pub(crate) async fn download(url: &str, timeout: Option<Duration>) -> Result<Vec<u8>, String> {
     let client = reqwest::Client::builder()
         .user_agent(concat!("WraithUI/", env!("CARGO_PKG_VERSION")))
         .build()

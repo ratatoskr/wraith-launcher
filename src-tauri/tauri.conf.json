@@ -50,6 +50,11 @@
     }
   },
   "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["wraith"]
+      }
+    },
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEYxQzc2QzEzODA0QkFCMTEKUldRUnEwdUFFMnpIOGU0Sy9OTjlDNDFyUm10OGxrMk5qMGRVK1IyaDQ2YndENU5pNEgrNkozd2YK",
       "endpoints": ["https://dist.wraith.io/launcher/latest.json"],

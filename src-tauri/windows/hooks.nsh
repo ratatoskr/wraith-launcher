@@ -35,7 +35,7 @@ Function LauncherInstallPage
   ${NSD_CreateCheckbox} 0 52u 100% 12u "Add the &wraith command to PATH, for building plugins"
   Pop $LauncherPathBox
   ${NSD_Check} $LauncherPathBox
-  ${NSD_CreateLabel} 12u 66u -12u 24u "You can change this later at the bottom of the launcher's Plugins tab."
+  ${NSD_CreateLabel} 12u 66u -12u 24u "You can change this later under More in the launcher."
   Pop $0
   ${NSD_CreateLabel} 0 100u 100% 12u "Click Install to install it."
   Pop $0

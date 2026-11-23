@@ -10,6 +10,10 @@ Pre-release. Expect breaking changes.
 
 Using Wraith in online games can get you banned. Use it offline or in single-player.
 
+## Working on it
+
+`npm run tauri dev` runs the whole app. For just the UI, `npm run dev` and open `http://localhost:1420/?mock` in a browser. It fakes Wraith with made-up games and mods, from `src/dev/mock.ts`. Add `&install=<id>` to try a hub Install link.
+
 ## License
 
 MIT, see [LICENSE](LICENSE). Third-party notices in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

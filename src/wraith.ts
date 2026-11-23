@@ -50,6 +50,19 @@ export const onStatus = (handler: (status: Status) => void): Promise<UnlistenFn>
 export const onEvent = (handler: (event: WraithEvent) => void): Promise<UnlistenFn> =>
   listen<WraithEvent>("wraith://event", (e) => handler(e.payload));
 
+/** A `wraith://install/<id>` link, like the hub's Install button, with the mod's id. */
+export const onInstallLink = (handler: (id: string) => void): Promise<UnlistenFn> =>
+  listen<string>("launcher://install", (e) => handler(e.payload));
+
+/** The game's art from what its store keeps on this PC, as a data URL. Only Steam keeps any. */
+export const gameArt = (id: string) => invoke<string | null>("game_art", { id });
+
+/** Game ids to the Wraith Hub's copies of their pictures, on dist.wraith.io. */
+export const hubArt = () => invoke<Record<string, string>>("hub_art");
+
+/** One that came before the UI was listening, like the link that started the launcher. */
+export const takeInstallLink = () => invoke<string | null>("take_install_link");
+
 /** `id` is stable, for code and CSS. `label` is for showing. */
 export interface Named {
   id: string;
