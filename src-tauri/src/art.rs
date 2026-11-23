@@ -97,8 +97,8 @@ pub fn hub_art_of(signed: &[u8]) -> Result<HashMap<String, String>, String> {
         .iter()
         .position(|&b| b == b'\n')
         .map_or(signed, |at| &signed[at + 1..]);
-    let doc: HubIndex = serde_json::from_slice(json)
-        .map_err(|e| format!("The hub's index didn't read: {e}"))?;
+    let doc: HubIndex =
+        serde_json::from_slice(json).map_err(|e| format!("The hub's index didn't read: {e}"))?;
     let mut out = HashMap::new();
     for g in doc.games {
         let Some(image) = g
