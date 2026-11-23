@@ -93,13 +93,13 @@ const mod = (m: Partial<w.Mod> & Pick<w.Mod, "id" | "title">): w.Mod => ({
   needs_wraith: null,
   installed: null,
   revoked: false,
+  has_update: false,
   ...m,
 });
 
 let mods: w.Mod[] = [
-  mod({ id: "camera", title: "Camera Tools", summary: "Fly the camera around, or orbit it round a point. Good for screenshots.", any_game: true, library: true, installed: "1.1.0", latest: "1.2.0" }),
-  mod({ id: "posing", title: "Posing", summary: "Pose characters' bones, with a gizmo over the game.", any_game: true, library: true, latest: "0.4.0" }),
-  mod({ id: "unity", title: "Unity", summary: "The free camera, posing and game speed in Unity games.", games: ["steam-632360"], featured: true }),
+  mod({ id: "unity", title: "Unity", summary: "The free camera, posing and game speed in Unity games.", games: ["steam-632360"], essential: true }),
+  mod({ id: "unreal", title: "Unreal", summary: "The free camera, posing, game speed, pause and the console in Unreal Engine 4 and 5 games.", games: ["steam-1245620"], essential: true, installed: "0.0.1", latest: "0.0.2" }),
   mod({ id: "kai_tables", kind: "project", title: "Kai Tables", summary: "Addresses and tweaks for Trails beyond the Horizon.", author: "Kat", games: ["local-kai-1a2b"] }),
   mod({ id: "elden_fps", title: "Unlock FPS", summary: "Takes off the 60 FPS cap.", author: "Someone", games: ["steam-1245620"], latest: null, needs_wraith: "0.9.0" }),
   mod({ id: "elden_hud", title: "HUD Toggle", summary: "Hide the HUD with a key.", author: "Someone", games: ["steam-1245620"], latest: null, outdated: true, installed: "0.3.0" }),
@@ -122,7 +122,8 @@ async function request(method: string, params: Record<string, unknown>): Promise
     case "anticheat":
       return [];
     case "mods":
-      return { generated: new Date().toISOString(), mods_dir: "C:\\Users\\you\\AppData\\Local\\Wraith\\mods", mods };
+      // Wraith works this out, the way it compares versions
+      return { generated: new Date().toISOString(), mods_dir: "C:\\Users\\you\\AppData\\Local\\Wraith\\mods", mods: mods.map((m) => ({ ...m, has_update: !!m.installed && !!m.latest && m.installed !== m.latest })) };
     case "inspect": {
       const g = games.find((x) => x.launch.game_exe === params.exe) ?? games[0];
       return { arch: "x64", installed: null, taken: [], anticheat: [], game_engine: g.game_engine, game: g };
@@ -144,6 +145,12 @@ async function request(method: string, params: Record<string, unknown>): Promise
       await wait(800);
       mods = mods.map((m) => (m.installed ? { ...m, installed: m.latest } : m));
       return { updated: [] };
+    case "mod_essentials": {
+      await wait(1500);
+      const missing = mods.filter((m) => m.essential && !m.installed && m.latest);
+      mods = mods.map((m) => (missing.includes(m) ? { ...m, installed: m.latest } : m));
+      return { kept: missing.map((m) => ({ id: m.id, title: m.title, was: null, version: m.latest })) };
+    }
     case "play":
       await wait(4000);
       return { pid: 1234 };

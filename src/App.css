@@ -213,6 +213,19 @@ code {
   color: var(--red);
 }
 
+.banner-ok {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background-color: #1f3326;
+  border: 1px solid #306b44;
+  color: var(--green);
+}
+
+.banner-ok span {
+  flex: 1;
+}
+
 /* Views */
 
 .view {

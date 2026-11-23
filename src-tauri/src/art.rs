@@ -68,13 +68,14 @@ pub fn header_of(root: &Path, appid: &str) -> Option<PathBuf> {
     })
 }
 
-/// The hub's list of games, with its copies of their pictures.
-const HUB_GAMES: &str = "https://dist.wraith.io/hub/v1/games.json";
+/// Everything on the hub, games and their pictures included. The first line is its signature, which
+/// pictures don't need, since they only come from `HUB_ART`.
+const HUB_INDEX: &str = "https://dist.wraith.io/hub/v2/index.signed";
 /// Only pictures here, so the list can't send the app anywhere else.
 const HUB_ART: &str = "https://dist.wraith.io/hub/v1/art/";
 
 #[derive(serde::Deserialize)]
-struct HubGames {
+struct HubIndex {
     games: Vec<HubGame>,
 }
 
@@ -87,13 +88,17 @@ struct HubGame {
 /// Every game id the hub has a picture for, to it.
 #[tauri::command]
 pub async fn hub_art() -> Result<HashMap<String, String>, String> {
-    let json = crate::install::download(HUB_GAMES, Some(Duration::from_secs(10))).await?;
-    hub_art_of(&json)
+    let signed = crate::install::download(HUB_INDEX, Some(Duration::from_secs(10))).await?;
+    hub_art_of(&signed)
 }
 
-pub fn hub_art_of(json: &[u8]) -> Result<HashMap<String, String>, String> {
-    let doc: HubGames = serde_json::from_slice(json)
-        .map_err(|e| format!("The hub's games list didn't read: {e}"))?;
+pub fn hub_art_of(signed: &[u8]) -> Result<HashMap<String, String>, String> {
+    let json = signed
+        .iter()
+        .position(|&b| b == b'\n')
+        .map_or(signed, |at| &signed[at + 1..]);
+    let doc: HubIndex = serde_json::from_slice(json)
+        .map_err(|e| format!("The hub's index didn't read: {e}"))?;
     let mut out = HashMap::new();
     for g in doc.games {
         let Some(image) = g
@@ -207,7 +212,8 @@ mod tests {
 
     #[test]
     fn hub_pictures_only_from_its_own_copies() {
-        let json = br#"{ "format": 1, "games": [
+        let json = br#"abcd
+{ "format": 2, "packages": [], "games": [
             { "name": "Kai", "idents": ["kai", "steam-1"], "image": "https://dist.wraith.io/hub/v1/art/3-abc.jpg", "packages": 1 },
             { "name": "Elsewhere", "idents": ["gog-2"], "image": "https://cdn.store.example/x.jpg", "packages": 1 },
             { "name": "Sneaky", "idents": ["gog-3"], "image": "https://dist.wraith.io/hub/v1/art/../../evil", "packages": 1 },

@@ -170,6 +170,11 @@ function ModCard(props: { mod: wraith.Mod; forWhat: string; action?: ActionState
             </span>
           )}
           {p.kind === "project" && <span className="chip">Project</span>}
+          {p.essential && (
+            <span className="chip" title="Wraith keeps it installed and up to date for games made with this engine. Turn it off for a game from Mods in the overlay">
+              Engine support
+            </span>
+          )}
           {p.library && (
             <span className="chip" title="Other mods use it, and it came with them">
               Library
@@ -204,8 +209,8 @@ function ModCard(props: { mod: wraith.Mod; forWhat: string; action?: ActionState
                 {p.revoked ? "Replace with" : "Update to"} {p.latest}
               </button>
             )}
-            {/* Mods built on a library need it, so it isn't one to take out by itself */}
-            {p.installed && !p.library && (
+            {/* Mods built on a library need it, and Wraith puts an essential one back, so neither is one to take out */}
+            {p.installed && !p.library && !p.essential && (
               <button className="ghost" onClick={() => props.onChange(p.id, "remove")}>
                 Remove
               </button>

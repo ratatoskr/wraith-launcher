@@ -230,6 +230,10 @@ export interface Mod {
   revoked: boolean;
   /** Other mods use it and it comes with them, like an engine's helpers. Only listed once it's installed. */
   library?: boolean;
+  /** A game engine's official plugin. Wraith keeps it installed and up to date, so it can't be removed. */
+  essential?: boolean;
+  /** Installed, and there's a newer version or it was pulled. Wraith works it out, the way it compares versions. */
+  has_update: boolean;
 }
 
 export interface ModCatalog {
@@ -247,18 +251,18 @@ export const removeMod = (id: string) => request<object>("mod_remove", { id });
 /** A null version means it was taken out, since the hub pulled it. */
 export const updateMods = () => request<{ updated: { id: string; version: string | null }[] }>("mod_update", {});
 
-export function isNewer(a: string, b: string): boolean {
-  const pa = a.split(".").map(Number);
-  const pb = b.split(".").map(Number);
-  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
-    const x = pa[i] || 0;
-    const y = pb[i] || 0;
-    if (x !== y) return x > y;
-  }
-  return false;
+/** What `keepEssentials` added (`was` is null) or updated. */
+export interface Kept {
+  id: string;
+  title: string;
+  was: string | null;
+  version: string;
 }
 
-export const hasUpdate = (p: Mod) => p.installed !== null && p.latest !== null && (p.revoked || isNewer(p.latest, p.installed));
+/** Installs or updates the official plugin of each of the player's games' engines. */
+export const keepEssentials = () => request<{ kept: Kept[] }>("mod_essentials", {});
+
+export const hasUpdate = (p: Mod) => p.has_update;
 
 export type WaitOptions = { signal?: AbortSignal; onAttached?: (pid: number) => void };
 

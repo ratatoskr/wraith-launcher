@@ -176,6 +176,21 @@ function App() {
     if (ready) refreshCatalog();
   }, [ready, refreshCatalog]);
 
+  // Each of the player's games' engines' official plugin, added or updated with a notice
+  const [kept, setKept] = useState<wraith.Kept[]>([]);
+  useEffect(() => {
+    if (!ready) return;
+    wraith
+      .keepEssentials()
+      .then(({ kept }) => {
+        if (kept.length === 0) return;
+        setKept(kept);
+        refreshCatalog();
+      })
+      // Offline, or an older Wraith without it
+      .catch((e) => console.warn("Couldn't keep engine plugins up to date:", e));
+  }, [ready, refreshCatalog]);
+
   // Asked for by a wraith://install link. Shown at the top of Mods for the player to install, never by itself
   const [asked, setAsked] = useState<string | null>(null);
   useEffect(() => {
@@ -467,6 +482,16 @@ function App() {
           <p>The list updates once it's done.</p>
           <Progress />
         </Blocker>
+      )}
+      {kept.length > 0 && (
+        <div className="banner banner-ok">
+          <span>
+            {kept.map((k) => (k.was ? `Updated ${k.title} to ${k.version}.` : `Added ${k.title} ${k.version}, which Wraith needs in ${k.title} games.`)).join(" ")}
+          </span>
+          <button className="ghost" onClick={() => setKept([])}>
+            OK
+          </button>
+        </div>
       )}
       {(status.state === "failed" || status.state === "exited") && (
         <div className="banner banner-bad">
