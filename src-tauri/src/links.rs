@@ -23,13 +23,16 @@ pub fn install_id(url: &str) -> Option<String> {
     let rest = strip_prefix_ignore_case(url, "wraith://install/")?;
     let id = rest.trim_end_matches('/');
     let ok = (1..=64).contains(&id.len())
-        && id.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_' || b == b'-' || b == b'.');
+        && id.bytes().all(|b| {
+            b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_' || b == b'-' || b == b'.'
+        });
     ok.then(|| id.to_owned())
 }
 
 fn strip_prefix_ignore_case<'a>(s: &'a str, prefix: &str) -> Option<&'a str> {
     let head = s.get(..prefix.len())?;
-    head.eq_ignore_ascii_case(prefix).then(|| &s[prefix.len()..])
+    head.eq_ignore_ascii_case(prefix)
+        .then(|| &s[prefix.len()..])
 }
 
 /// From the first launch or one forwarded by another. Brings the window up and tells the UI.
@@ -37,10 +40,10 @@ pub fn open(app: &AppHandle, urls: impl IntoIterator<Item = String>) {
     let Some(id) = urls.into_iter().find_map(|u| install_id(&u)) else {
         return;
     };
-    if let Some(asked) = app.try_state::<Asked>() {
-        if let Ok(mut slot) = asked.0.lock() {
-            *slot = Some(id.clone());
-        }
+    if let Some(asked) = app.try_state::<Asked>()
+        && let Ok(mut slot) = asked.0.lock()
+    {
+        *slot = Some(id.clone());
     }
     show(app);
     let _ = app.emit(EVENT, id);
@@ -61,8 +64,14 @@ mod tests {
 
     #[test]
     fn install_links_name_a_mod() {
-        assert_eq!(install_id("wraith://install/kai_bones").as_deref(), Some("kai_bones"));
-        assert_eq!(install_id("WRAITH://Install/unity-cam.v2/").as_deref(), Some("unity-cam.v2"));
+        assert_eq!(
+            install_id("wraith://install/kai_bones").as_deref(),
+            Some("kai_bones")
+        );
+        assert_eq!(
+            install_id("WRAITH://Install/unity-cam.v2/").as_deref(),
+            Some("unity-cam.v2")
+        );
     }
 
     #[test]
@@ -79,6 +88,9 @@ mod tests {
         ] {
             assert_eq!(install_id(url), None, "{url}");
         }
-        assert_eq!(install_id(&format!("wraith://install/{}", "a".repeat(65))), None);
+        assert_eq!(
+            install_id(&format!("wraith://install/{}", "a".repeat(65))),
+            None
+        );
     }
 }

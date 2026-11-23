@@ -82,7 +82,9 @@ pub fn add_cli() {
 pub fn run() {
     tauri::Builder::default()
         // First, so a second launch from a link goes to this one instead. Its URL reaches deep-link's on_open_url
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| links::show(app)))
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            links::show(app)
+        }))
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
@@ -96,7 +98,9 @@ pub fn run() {
                 eprintln!("Couldn't register wraith:// links: {error}");
             }
             let handle = app.handle().clone();
-            app.deep_link().on_open_url(move |event| links::open(&handle, event.urls().into_iter().map(|u| u.to_string())));
+            app.deep_link().on_open_url(move |event| {
+                links::open(&handle, event.urls().into_iter().map(|u| u.to_string()))
+            });
             if let Ok(Some(urls)) = app.deep_link().get_current() {
                 links::open(app.handle(), urls.into_iter().map(|u| u.to_string()));
             }

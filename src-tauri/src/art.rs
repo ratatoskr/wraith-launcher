@@ -20,11 +20,30 @@ pub async fn game_art(id: String) -> Option<String> {
         return None;
     }
     let bytes = std::fs::read(&path).ok()?;
-    let kind = if path.extension().is_some_and(|e| e.eq_ignore_ascii_case("png")) { "png" } else { "jpeg" };
-    Some(format!("data:image/{kind};base64,{}", base64::engine::general_purpose::STANDARD.encode(bytes)))
+    let kind = if path
+        .extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("png"))
+    {
+        "png"
+    } else {
+        "jpeg"
+    };
+    Some(format!(
+        "data:image/{kind};base64,{}",
+        base64::engine::general_purpose::STANDARD.encode(bytes)
+    ))
 }
 
-/// Where the header for `appid` is in Steam's library cache, either layout.
+/// What Steam calls the wide picture, best first. Newer Steam often only keeps `library_header.jpg`,
+/// the same 460x215 header. The others are close enough to fill a tile.
+const NAMES: [&str; 4] = [
+    "header.jpg",
+    "library_header.jpg",
+    "library_capsule.jpg",
+    "library_hero.jpg",
+];
+
+/// Where the header for `appid` is in Steam's library cache, any layout.
 pub fn header_of(root: &Path, appid: &str) -> Option<PathBuf> {
     if appid.is_empty() || !appid.bytes().all(|b| b.is_ascii_digit()) {
         return None;
@@ -35,16 +54,18 @@ pub fn header_of(root: &Path, appid: &str) -> Option<PathBuf> {
         return Some(flat);
     }
     let dir = cache.join(appid);
-    let direct = dir.join("header.jpg");
-    if direct.is_file() {
-        return Some(direct);
-    }
     // Some sit a folder deeper, under a hash
-    std::fs::read_dir(&dir)
+    let deeper: Vec<PathBuf> = std::fs::read_dir(&dir)
         .ok()?
         .filter_map(|e| e.ok())
-        .map(|e| e.path().join("header.jpg"))
-        .find(|p| p.is_file())
+        .map(|e| e.path())
+        .filter(|p| p.is_dir())
+        .collect();
+    NAMES.iter().find_map(|name| {
+        std::iter::once(dir.join(name))
+            .chain(deeper.iter().map(|d| d.join(name)))
+            .find(|p| p.is_file())
+    })
 }
 
 /// The hub's list of games, with its copies of their pictures.
@@ -71,10 +92,14 @@ pub async fn hub_art() -> Result<HashMap<String, String>, String> {
 }
 
 pub fn hub_art_of(json: &[u8]) -> Result<HashMap<String, String>, String> {
-    let doc: HubGames = serde_json::from_slice(json).map_err(|e| format!("The hub's games list didn't read: {e}"))?;
+    let doc: HubGames = serde_json::from_slice(json)
+        .map_err(|e| format!("The hub's games list didn't read: {e}"))?;
     let mut out = HashMap::new();
     for g in doc.games {
-        let Some(image) = g.image.filter(|i| i.starts_with(HUB_ART) && !i.contains("..")) else {
+        let Some(image) = g
+            .image
+            .filter(|i| i.starts_with(HUB_ART) && !i.contains(".."))
+        else {
             continue;
         };
         for ident in g.idents {
@@ -88,7 +113,11 @@ pub fn hub_art_of(json: &[u8]) -> Result<HashMap<String, String>, String> {
 fn steam_root() -> Option<PathBuf> {
     use winreg::RegKey;
     use winreg::enums::HKEY_CURRENT_USER;
-    let path: String = RegKey::predef(HKEY_CURRENT_USER).open_subkey(r"Software\Valve\Steam").ok()?.get_value("SteamPath").ok()?;
+    let path: String = RegKey::predef(HKEY_CURRENT_USER)
+        .open_subkey(r"Software\Valve\Steam")
+        .ok()?
+        .get_value("SteamPath")
+        .ok()?;
     Some(PathBuf::from(path))
 }
 
@@ -103,14 +132,21 @@ mod tests {
     use std::fs;
 
     fn cache() -> (std::path::PathBuf, std::path::PathBuf) {
-        let root = std::env::temp_dir().join(format!("wraith-art-{}-{}", std::process::id(), rand_suffix()));
+        let root = std::env::temp_dir().join(format!(
+            "wraith-art-{}-{}",
+            std::process::id(),
+            rand_suffix()
+        ));
         let cache = root.join("appcache").join("librarycache");
         fs::create_dir_all(&cache).unwrap();
         (root, cache)
     }
 
     fn rand_suffix() -> u128 {
-        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
     }
 
     #[test]
@@ -120,12 +156,52 @@ mod tests {
         fs::create_dir_all(cache.join("20")).unwrap();
         fs::write(cache.join("20").join("header.jpg"), b"new").unwrap();
         fs::create_dir_all(cache.join("30").join("abc123")).unwrap();
-        fs::write(cache.join("30").join("abc123").join("header.jpg"), b"hashed").unwrap();
+        fs::write(
+            cache.join("30").join("abc123").join("header.jpg"),
+            b"hashed",
+        )
+        .unwrap();
 
         assert_eq!(fs::read(header_of(&root, "10").unwrap()).unwrap(), b"old");
         assert_eq!(fs::read(header_of(&root, "20").unwrap()).unwrap(), b"new");
-        assert_eq!(fs::read(header_of(&root, "30").unwrap()).unwrap(), b"hashed");
+        assert_eq!(
+            fs::read(header_of(&root, "30").unwrap()).unwrap(),
+            b"hashed"
+        );
         assert_eq!(header_of(&root, "40"), None);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn newer_steam_names_count_too() {
+        let (root, cache) = cache();
+        // Like FF Resonance: only a library_header, under a hash, beside other pictures
+        let game = cache.join("3259780");
+        fs::create_dir_all(game.join("aa")).unwrap();
+        fs::create_dir_all(game.join("bb")).unwrap();
+        fs::write(game.join("icon.jpg"), b"icon").unwrap();
+        fs::write(game.join("aa").join("library_hero.jpg"), b"hero").unwrap();
+        fs::write(
+            game.join("bb").join("library_header.jpg"),
+            b"library header",
+        )
+        .unwrap();
+        assert_eq!(
+            fs::read(header_of(&root, "3259780").unwrap()).unwrap(),
+            b"library header"
+        );
+
+        // The proper header wins when there's both
+        fs::write(game.join("header.jpg"), b"header").unwrap();
+        assert_eq!(
+            fs::read(header_of(&root, "3259780").unwrap()).unwrap(),
+            b"header"
+        );
+
+        // Only an icon is nothing to show
+        fs::create_dir_all(cache.join("1260")).unwrap();
+        fs::write(cache.join("1260").join("d8a2.jpg"), b"icon").unwrap();
+        assert_eq!(header_of(&root, "1260"), None);
         fs::remove_dir_all(root).unwrap();
     }
 
