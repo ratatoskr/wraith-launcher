@@ -10,6 +10,10 @@ Pre-release. Expect breaking changes.
 
 Using Wraith in online games can get you banned. Use it offline or in single-player.
 
+## Want to download?
+
+Get the Wraith app from [wraith.io](https://wraith.io). It installs Wraith, finds your games, and installs mods from the [Hub](https://hub.wraith.io). New to it? [Start here](https://docs.wraith.io/play/).
+
 ## Working on it
 
 `npm run tauri dev` runs the whole app. For just the UI, `npm run dev` and open `http://localhost:1420/?mock` in a browser. It fakes Wraith with made-up games and mods, from `src/dev/mock.ts`. Add `&install=<id>` to try a hub Install link.
