@@ -226,6 +226,8 @@ export interface Mod {
   installed: string | null;
   /** The installed copy was pulled from the hub. Wraith won't load it, and updating takes it out. */
   revoked: boolean;
+  /** Other mods use it and it comes with them, like Camera Tools. Only listed once it's installed. */
+  library?: boolean;
 }
 
 export interface ModCatalog {

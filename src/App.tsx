@@ -207,7 +207,7 @@ function App() {
   }, [ready]);
 
   const [modsOf, setModsOf] = useState<string | null>(null);
-  const modsFor = (g: wraith.Game) => catalog?.mods.filter((p) => p.games.includes(g.id)) ?? [];
+  const modsFor = (g: wraith.Game) => catalog?.mods.filter((p) => p.games.includes(g.id) && (!p.library || p.installed)) ?? [];
   const names = useMemo(() => new Map((games ?? []).map((g) => [g.id, gameName(g)])), [games]);
 
   async function modAction(name: string, change: "install" | "remove") {

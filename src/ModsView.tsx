@@ -30,14 +30,17 @@ export function ModsView(props: {
   const [show, setShow] = useState<Show>("yours");
   const mods = props.catalog?.mods ?? [];
   const askedMod = props.asked ? mods.find((p) => p.id === props.asked) : undefined;
+  // Libraries come with the mods that need them, so they're only shown once installed
+  const offered = (p: wraith.Mod) => !p.library || !!p.installed;
   const counts = {
-    yours: mods.filter((p) => p.games.length > 0 || p.any_game || p.installed).length,
+    yours: mods.filter((p) => offered(p) && (p.games.length > 0 || p.any_game || p.installed)).length,
     installed: mods.filter((p) => p.installed).length,
-    all: mods.length,
+    all: mods.filter(offered).length,
   };
   const shown = useMemo(() => {
     const f = filter.trim().toLowerCase();
     return mods
+      .filter(offered)
       .filter((p) => (show === "installed" ? p.installed : show === "yours" ? p.games.length > 0 || p.any_game || p.installed : true))
       .filter((p) => !f || `${p.title} ${p.id} ${p.summary} ${p.author}`.toLowerCase().includes(f))
       .sort((a, b) => rank(a) - rank(b) || (a.title || a.id).localeCompare(b.title || b.id));
@@ -167,6 +170,11 @@ function ModCard(props: { mod: wraith.Mod; forWhat: string; action?: ActionState
             </span>
           )}
           {p.kind === "project" && <span className="chip">Project</span>}
+          {p.library && (
+            <span className="chip" title="Other mods use it, and it came with them">
+              Library
+            </span>
+          )}
           {p.installed && <span className="chip chip-ok">Installed {p.installed}</span>}
           {p.revoked && (
             <span className="chip chip-bad" title="Wraith won't load it. Update or remove it">
@@ -195,7 +203,8 @@ function ModCard(props: { mod: wraith.Mod; forWhat: string; action?: ActionState
                 {p.revoked ? "Replace with" : "Update to"} {p.latest}
               </button>
             )}
-            {p.installed && (
+            {/* Mods built on a library need it, so it isn't one to take out by itself */}
+            {p.installed && !p.library && (
               <button className="ghost" onClick={() => props.onChange(p.id, "remove")}>
                 Remove
               </button>
