@@ -783,7 +783,7 @@ ul.processes li {
   color: #e0607e;
 }
 
-/* Over everything while the launcher or Wraith updates */
+/* Over everything while the launcher or Wraith updates, or mods change */
 
 .blocker {
   position: fixed;

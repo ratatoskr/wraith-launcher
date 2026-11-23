@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as wraith from "./wraith";
 import { getVersion } from "@tauri-apps/api/app";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
@@ -158,11 +158,17 @@ function App() {
 
   const [catalog, setCatalog] = useState<wraith.ModCatalog | null>(null);
   const [catalogError, setCatalogError] = useState<string | null>(null);
+  // Requests run side by side, so an older answer could land after a newer one
+  const catalogAsked = useRef(0);
   const refreshCatalog = useCallback(async () => {
+    const asked = ++catalogAsked.current;
     try {
-      setCatalog(await wraith.mods());
+      const next = await wraith.mods();
+      if (asked !== catalogAsked.current) return;
+      setCatalog(next);
       setCatalogError(null);
     } catch (e) {
+      if (asked !== catalogAsked.current) return;
       setCatalogError(errorText(e));
     }
   }, []);
@@ -210,16 +216,29 @@ function App() {
   const modsFor = (g: wraith.Game) => catalog?.mods.filter((p) => p.games.includes(g.id) && (!p.library || p.installed)) ?? [];
   const names = useMemo(() => new Map((games ?? []).map((g) => [g.id, gameName(g)])), [games]);
 
+  // Mod changes block the window till the list shows them
+  const [modWork, setModWork] = useState<string | null>(null);
+  async function blockFor(title: string, work: () => Promise<void>) {
+    setModWork(title);
+    try {
+      await work();
+      await refreshCatalog();
+    } finally {
+      setModWork(null);
+    }
+  }
+
   async function modAction(name: string, change: "install" | "remove") {
-    await perform(`mod:${name}`, change === "install" ? "Installing..." : "Removing...", () =>
-      change === "install" ? wraith.installMod(name) : wraith.removeMod(name),
+    const mod = catalog?.mods.find((m) => m.id === name);
+    const title = mod?.title || name;
+    const verb = change === "remove" ? "Removing" : mod?.installed ? "Updating" : "Installing";
+    await blockFor(`${verb} ${title}`, () =>
+      perform(`mod:${name}`, `${verb}...`, () => (change === "install" ? wraith.installMod(name) : wraith.removeMod(name))),
     );
-    refreshCatalog();
   }
 
   async function updateAllMods() {
-    await perform("mods", "Updating...", wraith.updateMods);
-    refreshCatalog();
+    await blockFor("Updating mods", () => perform("mods", "Updating...", wraith.updateMods));
   }
 
   const [choices, setChoices] = useState<Record<string, GameChoice>>(loadChoices);
@@ -443,6 +462,12 @@ function App() {
         </Blocker>
       )}
       {status.state === "mismatch" && <MismatchBanner status={status} />}
+      {modWork && (
+        <Blocker title={modWork}>
+          <p>The list updates once it's done.</p>
+          <Progress />
+        </Blocker>
+      )}
       {(status.state === "failed" || status.state === "exited") && (
         <div className="banner banner-bad">
           {status.state === "failed" ? `Wraith couldn't start: ${status.error}.` : "Wraith stopped."} Restart the launcher to try again. More has the log.
