@@ -197,7 +197,8 @@ function ModCard(props: { mod: wraith.Mod; forWhat: string; action?: ActionState
                 Install
               </button>
             )}
-            {!p.latest && !p.installed && <span className="note">Needs Wraith {p.needs_wraith}</span>}
+            {!p.latest && p.outdated && <span className="note">Not updated for this Wraith yet</span>}
+            {!p.latest && !p.installed && !p.outdated && <span className="note">{p.needs_wraith ? `Needs Wraith ${p.needs_wraith}` : "Needs a newer Wraith"}</span>}
             {wraith.hasUpdate(p) && (
               <button className="primary" onClick={() => props.onChange(p.id, "install")}>
                 {p.revoked ? "Replace with" : "Update to"} {p.latest}

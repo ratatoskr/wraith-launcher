@@ -99,9 +99,10 @@ const mod = (m: Partial<w.Mod> & Pick<w.Mod, "id" | "title">): w.Mod => ({
 let mods: w.Mod[] = [
   mod({ id: "camera", title: "Camera Tools", summary: "Fly the camera around, or orbit it round a point. Good for screenshots.", any_game: true, library: true, installed: "1.1.0", latest: "1.2.0" }),
   mod({ id: "posing", title: "Posing", summary: "Pose characters' bones, with a gizmo over the game.", any_game: true, library: true, latest: "0.4.0" }),
-  mod({ id: "unity", title: "Unity", summary: "Camera Tools, posing and game speed in Unity games.", games: ["steam-632360"], featured: true }),
+  mod({ id: "unity", title: "Unity", summary: "The free camera, posing and game speed in Unity games.", games: ["steam-632360"], featured: true }),
   mod({ id: "kai_tables", kind: "project", title: "Kai Tables", summary: "Addresses and tweaks for Trails beyond the Horizon.", author: "Kat", games: ["local-kai-1a2b"] }),
   mod({ id: "elden_fps", title: "Unlock FPS", summary: "Takes off the 60 FPS cap.", author: "Someone", games: ["steam-1245620"], latest: null, needs_wraith: "0.9.0" }),
+  mod({ id: "elden_hud", title: "HUD Toggle", summary: "Hide the HUD with a key.", author: "Someone", games: ["steam-1245620"], latest: null, outdated: true, installed: "0.3.0" }),
   mod({ id: "ffxiv_glam", title: "Glamour Preview", summary: "Try on gear without owning it.", author: "Someone else" }),
 ];
 

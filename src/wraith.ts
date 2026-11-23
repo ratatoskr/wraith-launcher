@@ -221,12 +221,14 @@ export interface Mod {
   why: string | null;
   /** Newest version this Wraith can run. */
   latest: string | null;
-  /** Set if this Wraith is too old for every version. */
+  /** Set if this Wraith is too old for every version. Empty when it's for a newer Wraith's API without saying which. */
   needs_wraith: string | null;
+  /** Its newest isn't made for this Wraith's API, so it won't load till its author updates it. */
+  outdated?: boolean;
   installed: string | null;
   /** The installed copy was pulled from the hub. Wraith won't load it, and updating takes it out. */
   revoked: boolean;
-  /** Other mods use it and it comes with them, like Camera Tools. Only listed once it's installed. */
+  /** Other mods use it and it comes with them, like an engine's helpers. Only listed once it's installed. */
   library?: boolean;
 }
 
