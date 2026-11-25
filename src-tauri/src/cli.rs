@@ -15,25 +15,74 @@ pub fn bin_dir(root: &Path) -> PathBuf {
     root.join("bin")
 }
 
-/// `this` is the shim, so `WRAITH` pointing back at it is skipped.
+fn saved_file(root: &Path) -> PathBuf {
+    root.join("settings").join("launcher_wraith_exe.txt")
+}
+
+/// The wraith.exe picked in the launcher's Dev tab, used like `WRAITH`.
+pub fn saved_exe(root: &Path) -> Option<std::ffi::OsString> {
+    let text = std::fs::read_to_string(saved_file(root)).ok()?;
+    let path = text.trim();
+    (!path.is_empty()).then(|| path.into())
+}
+
+/// None goes back to the installed one.
+pub fn set_saved_exe(root: &Path, exe: Option<&Path>) -> Result<(), String> {
+    let file = saved_file(root);
+    let Some(exe) = exe else {
+        return match std::fs::remove_file(&file) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+                Err(format!("Couldn't remove {}: {e}", file.display()))
+            }
+            _ => Ok(()),
+        };
+    };
+    let exe = exe_in(exe);
+    if !exe.is_file() {
+        return Err(format!("There's no wraith.exe at {}", exe.display()));
+    }
+    if let Some(dir) = file.parent() {
+        std::fs::create_dir_all(dir)
+            .map_err(|e| format!("Couldn't make {}: {e}", dir.display()))?;
+    }
+    std::fs::write(&file, exe.to_string_lossy().as_bytes())
+        .map_err(|e| format!("Couldn't write {}: {e}", file.display()))
+}
+
+/// A folder means the wraith.exe in it.
+pub fn exe_in(path: &Path) -> PathBuf {
+    if path.is_dir() {
+        path.join("wraith.exe")
+    } else {
+        path.to_path_buf()
+    }
+}
+
+/// `WRAITH`, else the one picked in the Dev tab.
+pub fn override_of(
+    wraith_env: Option<&std::ffi::OsStr>,
+    root: &Path,
+) -> Option<std::ffi::OsString> {
+    wraith_env
+        .filter(|e| !e.is_empty())
+        .map(|e| e.to_os_string())
+        .or_else(|| saved_exe(root))
+}
+
+/// `this` is the shim, so an override pointing back at it is skipped.
 pub fn find(
     wraith_env: Option<&std::ffi::OsStr>,
     root: &Path,
     this: &Path,
 ) -> Result<PathBuf, String> {
-    if let Some(env) = wraith_env.filter(|e| !e.is_empty()) {
-        let path = PathBuf::from(env);
-        let exe = if path.is_dir() {
-            path.join("wraith.exe")
-        } else {
-            path
-        };
+    if let Some(env) = override_of(wraith_env, root) {
+        let exe = exe_in(Path::new(&env));
         if !same_file(&exe, this) {
             return if exe.is_file() {
                 Ok(exe)
             } else {
                 Err(format!(
-                    "WRAITH is set to {}, but there's no wraith.exe there",
+                    "Wraith is set to {} (WRAITH, or the launcher's Dev tab), but there's no wraith.exe there",
                     exe.display()
                 ))
             };
@@ -240,6 +289,17 @@ mod tests {
             installed
         );
         assert!(find(Some(root.join("nope").as_os_str()), &root, &this).is_err());
+
+        // Picked in the Dev tab, under WRAITH
+        assert!(set_saved_exe(&root, Some(&root.join("nope"))).is_err());
+        set_saved_exe(&root, Some(&dev)).unwrap();
+        assert_eq!(find(None, &root, &this).unwrap(), dev.join("wraith.exe"));
+        assert_eq!(
+            find(Some(installed.as_os_str()), &root, &this).unwrap(),
+            installed
+        );
+        set_saved_exe(&root, None).unwrap();
+        assert_eq!(find(None, &root, &this).unwrap(), installed);
         let _ = std::fs::remove_dir_all(&root);
     }
 

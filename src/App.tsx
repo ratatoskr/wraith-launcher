@@ -20,16 +20,18 @@ import {
 } from "./common";
 import { GameRow, GamesView } from "./GamesView";
 import { GameMods, ModsView } from "./ModsView";
-import { type LogLine, MoreView } from "./MoreView";
+import { MoreView } from "./MoreView";
+import { DevView, type LogLine } from "./DevView";
 import "./App.css";
 
 const refreshMs = 3000;
 const maxLogLines = 200;
 
-type Tab = "games" | "mods" | "more";
+type Tab = "games" | "mods" | "more" | "dev";
 
 /** Saved between runs. */
 const choicesKey = "wraith.games";
+const devTabKey = "wraith.devTab";
 
 function loadChoices(): Record<string, GameChoice> {
   try {
@@ -99,6 +101,11 @@ function App() {
   const [actions, setActions] = useState<Record<string, ActionState>>({});
   const [pending, setPending] = useState<Pending | null>(null);
   const [log, setLog] = useState<LogLine[]>([]);
+  const [devTab, setDevTab] = useState(() => localStorage.getItem(devTabKey) === "on");
+  function showDevTab(on: boolean) {
+    setDevTab(on);
+    localStorage.setItem(devTabKey, on ? "on" : "off");
+  }
   const ready = status.state === "ready";
 
   useEffect(() => {
@@ -443,6 +450,7 @@ function App() {
   const shown = statusOf(status);
   const modUpdates = catalog?.mods.filter(wraith.hasUpdate).length ?? 0;
   const runningGames = (games ?? []).filter((g) => runningAs(processes, g)?.wraith).length;
+  const logProblems = log.filter((l) => l.level === "err" || l.level === "warn").length;
 
   return (
     <main className="app">
@@ -463,6 +471,12 @@ function App() {
           <button className={tab === "more" ? "on" : undefined} onClick={() => setTab("more")}>
             More
           </button>
+          {devTab && (
+            <button className={tab === "dev" ? "on" : undefined} onClick={() => setTab("dev")}>
+              Dev
+              {logProblems > 0 && <span className="badge warn">{logProblems}</span>}
+            </button>
+          )}
         </nav>
         <span className={`status status-${shown.tone}`} title={`Wraith ${frameworkVersion(status)}`}>
           <span className={`dot ${shown.tone}`} />
@@ -495,7 +509,8 @@ function App() {
       )}
       {(status.state === "failed" || status.state === "exited") && (
         <div className="banner banner-bad">
-          {status.state === "failed" ? `Wraith couldn't start: ${status.error}.` : "Wraith stopped."} Restart the launcher to try again. More has the log.
+          {status.state === "failed" ? `Wraith couldn't start: ${status.error}.` : "Wraith stopped."} Restart the launcher to try again.{" "}
+          {devTab ? "The Dev tab has the log." : "Turn on the Dev tab in More to see the log."}
         </div>
       )}
       {antiCheatRunning.length !== 0 && (
@@ -574,11 +589,16 @@ function App() {
           actions={actions}
           onInject={(p) => requestInject(p)}
           confirmation={(p) => confirmation(processKey(p))}
-          log={log}
+          devTab={devTab}
+          onDevTab={showDevTab}
           launcherVersion={version}
           frameworkVersion={frameworkVersion(status)}
         />
       )}
+      {tab === "dev" && devTab && <DevView log={log} ready={ready} />}
+      <footer className="made-with sub">
+        Made with <span className="heart">♥</span> by Asgard
+      </footer>
     </main>
   );
 }

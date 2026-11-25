@@ -1,12 +1,9 @@
-// The rarer things: Wraith in a game that isn't listed, the wraith command, the log and versions.
+// The rarer things: Wraith in a game that isn't listed, the Dev tab and versions.
 
-import { useEffect, useRef, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import * as wraith from "./wraith";
-import { type ActionState, AntiCheatHints, errorText, GameEngineHint } from "./common";
+import { type ActionState, AntiCheatHints, GameEngineHint } from "./common";
 import { hubUrl } from "./ModsView";
-
-export type LogLine = Extract<wraith.WraithEvent, { event: "log" }> & { key: number };
 
 const docsUrl = "https://docs.wraith.io";
 
@@ -21,16 +18,11 @@ export function MoreView(props: {
   onInject: (p: wraith.RunningProcess) => void;
   /** The anti-cheat question under a program, by its key. */
   confirmation: (p: wraith.RunningProcess) => React.ReactNode;
-  log: LogLine[];
+  devTab: boolean;
+  onDevTab: (on: boolean) => void;
   launcherVersion: string | null;
   frameworkVersion: string;
 }) {
-  const logRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    logRef.current?.scrollTo({ top: logRef.current.scrollHeight });
-  }, [props.log]);
-  const problems = props.log.filter((l) => l.level === "err" || l.level === "warn").length;
-
   return (
     <section className="view more">
       <div className="card">
@@ -62,7 +54,12 @@ export function MoreView(props: {
 
       <div className="card">
         <h2>Making mods</h2>
-        <CliToggle />
+        <p>
+          <label className="check" title="The plugins you're building, the wraith command and the log">
+            <input type="checkbox" checked={props.devTab} onChange={(e) => props.onDevTab(e.currentTarget.checked)} />
+            Show the Dev tab
+          </label>
+        </p>
         <p className="sub">
           The <code>wraith</code> command builds and tries plugins. See{" "}
           <button className="link" onClick={() => void openUrl(`${docsUrl}/plugins/`)}>
@@ -71,21 +68,6 @@ export function MoreView(props: {
           .
         </p>
       </div>
-
-      <details className="card">
-        <summary>
-          <h2>Log</h2>
-          {problems > 0 && <span className="badge warn">{problems}</span>}
-        </summary>
-        <div className="log" ref={logRef}>
-          {props.log.length === 0 && <div className="sub">Nothing yet.</div>}
-          {props.log.map((line) => (
-            <div key={line.key} className={`log-${line.level}`}>
-              <span className="log-scope">{line.scope}</span> {line.message}
-            </div>
-          ))}
-        </div>
-      </details>
 
       <div className="card about">
         <h2>About</h2>
@@ -109,9 +91,6 @@ export function MoreView(props: {
           <button className="link" onClick={() => void openUrl("https://github.com/ratatoskr")}>
             GitHub
           </button>
-        </p>
-        <p className="sub">
-          Made with <span className="heart">♥</span> by Asgard
         </p>
       </div>
     </section>
@@ -155,25 +134,3 @@ function ProcessRow(props: { process: wraith.RunningProcess; action?: ActionStat
   );
 }
 
-/** For `wraith dev add` and friends. */
-function CliToggle() {
-  const [cli, setCli] = useState<wraith.CliStatus | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
-    wraith.cliStatus().then(setCli, (e) => setError(errorText(e)));
-  }, []);
-  if (!cli) return error ? <p className="error">{error}</p> : null;
-  const toggle = (on: boolean) => {
-    setError(null);
-    wraith.setCliOnPath(on).then(setCli, (e) => setError(errorText(e)));
-  };
-  return (
-    <p>
-      <label className="check" title={`It's in ${cli.dir}. New terminals pick up the change`}>
-        <input type="checkbox" checked={cli.on_path} onChange={(e) => toggle(e.currentTarget.checked)} />
-        Put the <code>wraith</code> command on PATH
-      </label>
-      {error && <span className="error"> {error}</span>}
-    </p>
-  );
-}

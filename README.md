@@ -18,6 +18,8 @@ Get the Wraith app from [wraith.io](https://wraith.io). It installs Wraith, find
 
 `npm run tauri dev` runs the whole app. For just the UI, `npm run dev` and open `http://localhost:1420/?mock` in a browser. It fakes Wraith with made-up games and mods, from `src/dev/mock.ts`. Add `&install=<id>` to try a hub Install link.
 
+It runs the installed Wraith unless you point it at another `wraith.exe`. That's the `WRAITH` env var, or Pick wraith.exe in the Dev tab (turn it on in More). In debug builds it also falls back to `../wraith/zig-out/bin/wraith.exe`. The `wraith` command on PATH follows the same pick.
+
 ## License
 
 MIT, see [LICENSE](LICENSE). Third-party notices in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

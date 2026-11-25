@@ -113,6 +113,12 @@ const log: { level: w.LogLevel; scope: string; message: string }[] = [
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+let devPlugins: w.DevPlugin[] = [
+  { folder: "D:\\mods\\games\\kai\\zig-out", name: "kai", problem: null, on: true },
+  { folder: "D:\\mods\\engines\\unity\\zig-out", name: "unity", problem: null, on: false },
+];
+let wraithExe: string | null = null;
+
 async function request(method: string, params: Record<string, unknown>): Promise<unknown> {
   switch (method) {
     case "games":
@@ -157,6 +163,17 @@ async function request(method: string, params: Record<string, unknown>): Promise
     case "inject":
       await wait(800);
       return { pid: params.target, arch: "x64", reloaded: false };
+    case "dev_list":
+    case "dev_add":
+    case "dev_set":
+    case "dev_remove": {
+      const folder = String(params.folder);
+      if (method === "dev_add") devPlugins = [...devPlugins.filter((p) => p.folder !== folder), { folder, name: null, problem: "no wraith.json in it", on: true }];
+      if (method === "dev_set") devPlugins = devPlugins.map((p) => (p.folder === folder ? { ...p, on: !!params.on } : p));
+      if (method === "dev_remove") devPlugins = devPlugins.filter((p) => p.folder !== folder);
+      const followed = devPlugins.some((p) => p.on && p.name === "kai") ? [{ name: "posing", dir: "D:\\mods\\libs\\posing\\zig-out", by: "kai" }] : [];
+      return { plugins: devPlugins, followed };
+    }
     default:
       return {};
   }
@@ -181,6 +198,11 @@ export function installMock() {
         case "cli_status":
         case "set_cli_on_path":
           return { dir: "C:\\Users\\you\\AppData\\Local\\Wraith\\bin", on_path: a.on ?? true };
+        case "wraith_exe":
+          return { saved: wraithExe, env: null };
+        case "set_wraith_exe":
+          wraithExe = (a.exe as string | null) ?? null;
+          return { saved: wraithExe, env: null };
         case "game_art":
           // Stands in for Steam's cached header, for Steam games only like the real one
           return String(a.id).startsWith("steam-") ? fakeArt(String(a.id)) : null;

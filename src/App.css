@@ -796,6 +796,34 @@ ul.processes li {
   color: #e0607e;
 }
 
+/* On every page, under it */
+
+.made-with {
+  padding: 6px 20px 8px;
+  text-align: center;
+}
+
+/* Dev */
+
+.process.off {
+  opacity: 0.6;
+}
+
+label.check.dev-plugin {
+  flex: 1;
+  min-width: 0;
+  color: var(--text);
+}
+
+.dev-plugin .sub {
+  word-break: break-all;
+}
+
+.process.followed {
+  opacity: 0.75;
+  padding-left: 34px;
+}
+
 /* Over everything while the launcher or Wraith updates, or mods change */
 
 .blocker {

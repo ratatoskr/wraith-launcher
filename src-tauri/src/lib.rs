@@ -54,6 +54,32 @@ fn set_cli_on_path(on: bool) -> Result<CliStatus, String> {
     cli_status()
 }
 
+#[derive(serde::Serialize)]
+struct WraithExe {
+    /// Picked in the Dev tab.
+    saved: Option<String>,
+    /// `WRAITH`, which wins over it.
+    env: Option<String>,
+}
+
+#[tauri::command]
+fn wraith_exe() -> Result<WraithExe, String> {
+    let root = cli::root()?;
+    Ok(WraithExe {
+        saved: cli::saved_exe(&root).map(|p| p.to_string_lossy().into_owned()),
+        env: std::env::var_os("WRAITH")
+            .filter(|e| !e.is_empty())
+            .map(|e| e.to_string_lossy().into_owned()),
+    })
+}
+
+/// Null goes back to the installed one. Takes effect when the launcher starts again.
+#[tauri::command]
+fn set_wraith_exe(exe: Option<String>) -> Result<WraithExe, String> {
+    cli::set_saved_exe(&cli::root()?, exe.as_deref().map(std::path::Path::new))?;
+    wraith_exe()
+}
+
 /// Keeps `<root>\bin\wraith.exe` the same as the one shipped beside the launcher.
 fn place_shim() {
     let shipped = std::env::current_exe()
@@ -114,6 +140,8 @@ pub fn run() {
             wraith_status,
             cli_status,
             set_cli_on_path,
+            wraith_exe,
+            set_wraith_exe,
             take_install_link,
             art::game_art,
             art::hub_art

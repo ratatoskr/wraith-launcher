@@ -44,6 +44,12 @@ export type CliStatus = { dir: string; on_path: boolean };
 export const cliStatus = () => invoke<CliStatus>("cli_status");
 export const setCliOnPath = (on: boolean) => invoke<CliStatus>("set_cli_on_path", { on });
 
+/** `saved` is the Dev tab's pick. `env` is `WRAITH`, which wins over it. */
+export type WraithExe = { saved: string | null; env: string | null };
+export const wraithExe = () => invoke<WraithExe>("wraith_exe");
+/** Null goes back to the installed one. */
+export const setWraithExe = (exe: string | null) => invoke<WraithExe>("set_wraith_exe", { exe });
+
 export const onStatus = (handler: (status: Status) => void): Promise<UnlistenFn> =>
   listen<Status>("wraith://status", (e) => handler(e.payload));
 
@@ -263,6 +269,35 @@ export interface Kept {
 export const keepEssentials = () => request<{ kept: Kept[] }>("mod_essentials", {});
 
 export const hasUpdate = (p: Mod) => p.has_update;
+
+/** A folder from `wraith dev add`. Off ones stay listed so they can go back on. */
+export interface DevPlugin {
+  folder: string;
+  /** The id in its wraith.json. */
+  name: string | null;
+  /** Why there's no name. */
+  problem: string | null;
+  on: boolean;
+}
+
+/** What a dev plugin's devDepends name, loaded from their builds too. */
+export interface FollowedPlugin {
+  name: string;
+  dir: string;
+  /** The dev plugin whose devDepends named it. */
+  by: string;
+}
+
+export interface DevPlugins {
+  plugins: DevPlugin[];
+  followed: FollowedPlugin[];
+}
+
+/** Each makes its change, then lists them. Folders that are gone come off the list. */
+export const devPlugins = () => request<DevPlugins>("dev_list", {});
+export const addDevPlugin = (folder: string) => request<DevPlugins>("dev_add", { folder });
+export const setDevPlugin = (folder: string, on: boolean) => request<DevPlugins>("dev_set", { folder, on });
+export const removeDevPlugin = (folder: string) => request<DevPlugins>("dev_remove", { folder });
 
 export type WaitOptions = { signal?: AbortSignal; onAttached?: (pid: number) => void };
 

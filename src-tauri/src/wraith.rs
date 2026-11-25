@@ -34,7 +34,7 @@ pub enum Status {
     Mismatch {
         version: String,
         needs: &'static str,
-        /// A dev build (`WRAITH` or the repo next door).
+        /// A dev build (`WRAITH`, the Dev tab's pick or the repo next door).
         dev: bool,
     },
     Failed {
@@ -245,15 +245,15 @@ fn ready_status(protocol: u64, version: String, dev: bool) -> Status {
     }
 }
 
-/// `WRAITH` if set, else in debug builds the one built in ../wraith.
+/// `WRAITH` or the Dev tab's pick, else in debug builds the one built in ../wraith.
 fn overridden() -> Option<PathBuf> {
-    if let Some(path) = std::env::var_os("WRAITH").filter(|p| !p.is_empty()) {
-        let path = PathBuf::from(path);
-        return Some(if path.is_dir() {
-            path.join("wraith.exe")
-        } else {
-            path
-        });
+    let root = crate::cli::root().ok();
+    let picked = root
+        .as_deref()
+        .and_then(|root| crate::cli::override_of(std::env::var_os("WRAITH").as_deref(), root))
+        .or_else(|| std::env::var_os("WRAITH").filter(|p| !p.is_empty()));
+    if let Some(path) = picked {
+        return Some(crate::cli::exe_in(Path::new(&path)));
     }
     #[cfg(debug_assertions)]
     {

@@ -61,6 +61,7 @@ const errorWords: Record<string, string> = {
   AccessDenied: "Windows said no. The game may be running as administrator, so try running Wraith as administrator too.",
   NotFound: "It's not there any more.",
   Canceled: "Stopped.",
+  NotAFolder: "That's not a folder.",
 };
 
 export function errorText(e: unknown): string {
