@@ -153,9 +153,9 @@ async function request(method: string, params: Record<string, unknown>): Promise
       return { updated: [] };
     case "mod_essentials": {
       await wait(1500);
-      const missing = mods.filter((m) => m.essential && !m.installed && m.latest);
+      const missing = params.installed_only ? [] : mods.filter((m) => m.essential && !m.installed && m.latest);
       mods = mods.map((m) => (missing.includes(m) ? { ...m, installed: m.latest } : m));
-      return { kept: missing.map((m) => ({ id: m.id, title: m.title, was: null, version: m.latest })) };
+      return { kept: missing.map((m) => ({ id: m.id, title: m.title, was: null, version: m.latest, game_engine: null })) };
     }
     case "play":
       await wait(4000);

@@ -183,20 +183,34 @@ function App() {
     if (ready) refreshCatalog();
   }, [ready, refreshCatalog]);
 
-  // Each of the player's games' engines' official plugin, added or updated with a notice
-  const [kept, setKept] = useState<wraith.Kept[]>([]);
+  // Essential mods, like each engine's official plugin, updated with a notice. Missing ones are
+  // added when their game's played, so nothing's fetched for games that aren't
+  const [kept, setKept] = useState<{ mod: wraith.Kept; game?: string }[]>([]);
   useEffect(() => {
     if (!ready) return;
     wraith
-      .keepEssentials()
+      .keepEssentials({ installedOnly: true })
       .then(({ kept }) => {
         if (kept.length === 0) return;
-        setKept(kept);
+        setKept(kept.map((mod) => ({ mod })));
         refreshCatalog();
       })
       // Offline, or an older Wraith without it
-      .catch((e) => console.warn("Couldn't keep engine plugins up to date:", e));
+      .catch((e) => console.warn("Couldn't keep essential mods up to date:", e));
   }, [ready, refreshCatalog]);
+
+  /** The game's essential mods, added or updated before it's played. Never stops it being played:
+   * offline, it plays with what it has. */
+  async function essentialsFor(g: wraith.InstalledGame) {
+    try {
+      const { kept } = await wraith.keepEssentials({ game: g.id });
+      if (kept.length === 0) return;
+      setKept(kept.map((mod) => ({ mod, game: gameName(g) })));
+      refreshCatalog();
+    } catch (e) {
+      console.warn(`Couldn't get ${gameName(g)}'s essential mods:`, e);
+    }
+  }
 
   // Asked for by a wraith://install link. Shown at the top of Mods for the player to install, never by itself
   const [asked, setAsked] = useState<string | null>(null);
@@ -416,8 +430,11 @@ function App() {
               : "Waiting for it to start...";
       perform(
         key,
-        label,
+        "Getting Wraith ready...",
         async () => {
+          await essentialsFor(g);
+          if (stop.signal.aborted) return;
+          setActions((s) => (s[key]?.state === "busy" ? { ...s, [key]: { ...s[key], label } } : s));
           try {
             await wraith.play(g.id, { exe: pick, how, signal: stop.signal, onAttached: refreshProcesses });
           } finally {
@@ -500,7 +517,13 @@ function App() {
       {kept.length > 0 && (
         <div className="banner banner-ok">
           <span>
-            {kept.map((k) => (k.was ? `Updated ${k.title} to ${k.version}.` : `Added ${k.title} ${k.version}, which Wraith needs in ${k.title} games.`)).join(" ")}
+            {kept
+              .map(({ mod: k, game }) =>
+                k.was
+                  ? `Updated ${k.title} to ${k.version}.`
+                  : `Added ${k.title} ${k.version}, which Wraith needs in ${k.game_engine !== null || !game ? `${k.title} games` : game}.`,
+              )
+              .join(" ")}
           </span>
           <button className="ghost" onClick={() => setKept([])}>
             OK

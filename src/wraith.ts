@@ -263,10 +263,15 @@ export interface Kept {
   title: string;
   was: string | null;
   version: string;
+  /** The game engine it's for, like `unity`. Null for one that's for a game. Older Wraiths leave it out. */
+  game_engine?: string | null;
 }
 
-/** Installs or updates the official plugin of each of the player's games' engines. */
-export const keepEssentials = () => request<{ kept: Kept[] }>("mod_essentials", {});
+/** Installs or updates the essential mods of the player's games: each engine's official plugin, and
+ * ones for a game itself. `game` is only that game's, like right before it's played. `installedOnly`
+ * updates ones that are installed, adding none. */
+export const keepEssentials = (options: { game?: string; installedOnly?: boolean } = {}) =>
+  request<{ kept: Kept[] }>("mod_essentials", { game: options.game, installed_only: options.installedOnly });
 
 export const hasUpdate = (p: Mod) => p.has_update;
 
