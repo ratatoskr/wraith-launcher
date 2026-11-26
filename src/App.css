@@ -440,6 +440,11 @@ input[type="checkbox"] {
   color: #d4c8ff;
 }
 
+.chip-essential {
+  background-color: #1f4a44;
+  color: #a6e9dc;
+}
+
 .chip-ok {
   background-color: #23372a;
   color: var(--green);

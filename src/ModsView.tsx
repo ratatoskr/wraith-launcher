@@ -171,8 +171,8 @@ function ModCard(props: { mod: wraith.Mod; forWhat: string; action?: ActionState
           )}
           {p.kind === "project" && <span className="chip">Project</span>}
           {p.essential && (
-            <span className="chip" title="Wraith keeps it installed and up to date for games made with this engine. Turn it off for a game from Mods in the overlay">
-              Engine support
+            <span className="chip chip-essential" title="Wraith gets it when you play a game it's for, and keeps it up to date. Turn it off for a game from Mods in the overlay">
+              Essential
             </span>
           )}
           {p.library && (
