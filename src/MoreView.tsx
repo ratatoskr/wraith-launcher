@@ -20,6 +20,8 @@ export function MoreView(props: {
   confirmation: (p: wraith.RunningProcess) => React.ReactNode;
   devTab: boolean;
   onDevTab: (on: boolean) => void;
+  autoUpdate: boolean;
+  onAutoUpdate: (on: boolean) => void;
   launcherVersion: string | null;
   frameworkVersion: string;
 }) {
@@ -50,6 +52,17 @@ export function MoreView(props: {
             </li>
           ))}
         </ul>
+      </div>
+
+      <div className="card">
+        <h2>Mods</h2>
+        <p>
+          <label className="check" title="Essential ones are always added or updated when you play a game that needs them">
+            <input type="checkbox" checked={props.autoUpdate} onChange={(e) => props.onAutoUpdate(e.currentTarget.checked)} />
+            Update optional plugins automatically
+          </label>
+        </p>
+        <p className="sub">Updates a game's other mods when you play it, not just the essential ones.</p>
       </div>
 
       <div className="card">

@@ -15,7 +15,7 @@ use tokio::sync::{Mutex, oneshot};
 use crate::install;
 
 /// Matches wraith's `serve.protocol`. Bump both on incompatible changes.
-const PROTOCOL: u64 = 3;
+const PROTOCOL: u64 = 4;
 
 pub const EVENT: &str = "wraith://event";
 pub const STATUS_EVENT: &str = "wraith://status";

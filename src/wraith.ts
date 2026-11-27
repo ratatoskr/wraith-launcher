@@ -254,8 +254,8 @@ export const installMod = (id: string, version?: string) => request<{ version: s
 
 export const removeMod = (id: string) => request<object>("mod_remove", { id });
 
-/** A null version means it was taken out, since the hub pulled it. */
-export const updateMods = () => request<{ updated: { id: string; version: string | null }[] }>("mod_update", {});
+/** A null version means it was taken out, since the hub pulled it. `game` is only those that load in that game. */
+export const updateMods = (game?: string) => request<{ updated: { id: string; version: string | null }[] }>("mod_update", { game });
 
 /** What `keepEssentials` added (`was` is null) or updated. */
 export interface Kept {

@@ -32,6 +32,7 @@ type Tab = "games" | "mods" | "more" | "dev";
 /** Saved between runs. */
 const choicesKey = "wraith.games";
 const devTabKey = "wraith.devTab";
+const autoUpdateKey = "wraith.autoUpdateMods";
 
 function loadChoices(): Record<string, GameChoice> {
   try {
@@ -40,6 +41,9 @@ function loadChoices(): Record<string, GameChoice> {
     return {};
   }
 }
+
+/** A mod added, updated, or taken out (null `version`) before a game's played. */
+type Change = Omit<wraith.Kept, "version"> & { version: string | null };
 
 function MismatchBanner(props: { status: Extract<wraith.Status, { state: "mismatch" }> }) {
   const { version, needs, dev } = props.status;
@@ -183,32 +187,40 @@ function App() {
     if (ready) refreshCatalog();
   }, [ready, refreshCatalog]);
 
-  // Essential mods, like each engine's official plugin, updated with a notice. Missing ones are
-  // added when their game's played, so nothing's fetched for games that aren't
-  const [kept, setKept] = useState<{ mod: wraith.Kept; game?: string }[]>([]);
-  useEffect(() => {
-    if (!ready) return;
-    wraith
-      .keepEssentials({ installedOnly: true })
-      .then(({ kept }) => {
-        if (kept.length === 0) return;
-        setKept(kept.map((mod) => ({ mod })));
-        refreshCatalog();
-      })
-      // Offline, or an older Wraith without it
-      .catch((e) => console.warn("Couldn't keep essential mods up to date:", e));
-  }, [ready, refreshCatalog]);
+  // Nothing's fetched on launch. A game's mods are added or updated when it's played, with a notice
+  const [kept, setKept] = useState<{ mod: Change; game?: string }[]>([]);
 
-  /** The game's essential mods, added or updated before it's played. Never stops it being played:
-   * offline, it plays with what it has. */
+  // Opted in: a game's optional mods are updated too when it's played
+  const [autoUpdate, setAutoUpdate] = useState(() => localStorage.getItem(autoUpdateKey) === "on");
+  function setAutoUpdateOn(on: boolean) {
+    setAutoUpdate(on);
+    localStorage.setItem(autoUpdateKey, on ? "on" : "off");
+  }
+
+  /** The game's essential mods, added or updated before it's played, and its others if opted in.
+   * Never stops it being played: offline, it plays with what it has. */
   async function essentialsFor(g: wraith.InstalledGame) {
+    const done: Change[] = [];
     try {
-      const { kept } = await wraith.keepEssentials({ game: g.id });
-      if (kept.length === 0) return;
-      setKept(kept.map((mod) => ({ mod, game: gameName(g) })));
-      refreshCatalog();
+      done.push(...(await wraith.keepEssentials({ game: g.id })).kept);
     } catch (e) {
       console.warn(`Couldn't get ${gameName(g)}'s essential mods:`, e);
+    }
+    if (autoUpdate) done.push(...(await optionalsFor(g)));
+    if (done.length === 0) return;
+    setKept(done.map((mod) => ({ mod, game: gameName(g) })));
+    refreshCatalog();
+  }
+
+  /** The game's other installed mods, updated, or taken out if pulled. */
+  async function optionalsFor(g: wraith.InstalledGame): Promise<Change[]> {
+    try {
+      const { updated } = await wraith.updateMods(g.id);
+      const listed = (id: string) => catalog?.mods.find((m) => m.id === id);
+      return updated.map(({ id, version }) => ({ id, title: listed(id)?.title || id, was: listed(id)?.installed ?? null, version }));
+    } catch (e) {
+      console.warn(`Couldn't update ${gameName(g)}'s mods:`, e);
+      return [];
     }
   }
 
@@ -519,7 +531,9 @@ function App() {
           <span>
             {kept
               .map(({ mod: k, game }) =>
-                k.was
+                k.version === null
+                  ? `Took out ${k.title}, which the hub pulled.`
+                  : k.was
                   ? `Updated ${k.title} to ${k.version}.`
                   : `Added ${k.title} ${k.version}, which Wraith needs in ${k.game_engine !== null || !game ? `${k.title} games` : game}.`,
               )
@@ -614,6 +628,8 @@ function App() {
           confirmation={(p) => confirmation(processKey(p))}
           devTab={devTab}
           onDevTab={showDevTab}
+          autoUpdate={autoUpdate}
+          onAutoUpdate={setAutoUpdateOn}
           launcherVersion={version}
           frameworkVersion={frameworkVersion(status)}
         />
